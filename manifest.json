@@ -1,7 +1,7 @@
 {
 	"id": "mindtree",
 	"name": "MindTree",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"minAppVersion": "1.5.0",
 	"description": "Edit and fold Markdown outlines as an XMind-style mind map. Every change is written straight back to the note.",
 	"author": "Awen",
