@@ -732,7 +732,7 @@ export class MindView extends ItemView {
 			attr: { "aria-label": t("toc.clear") },
 		});
 		setIcon(this.tocClearBtn, "x");
-		this.tocClearBtn.style.display = "none";
+		this.tocClearBtn.hide();
 		this.tocClearBtn.addEventListener("click", () => {
 			this.tocSearchInput.value = "";
 			this.applyTocQuery();
@@ -784,7 +784,8 @@ export class MindView extends ItemView {
 
 	private applyTocQuery(): void {
 		this.tocQuery = this.tocSearchInput.value.trim();
-		this.tocClearBtn.style.display = this.tocQuery ? "" : "none";
+		if (this.tocQuery) this.tocClearBtn.show();
+		else this.tocClearBtn.hide();
 		this.renderToc();
 	}
 
@@ -1027,7 +1028,7 @@ export class MindView extends ItemView {
 		if (!file || !this.drawn) return;
 		try {
 			const probe = this.contentEl.createDiv();
-			probe.style.background = "var(--background-primary)";
+			probe.setCssStyles({ background: "var(--background-primary)" });
 			const background = getComputedStyle(probe).backgroundColor;
 			probe.remove();
 			const { svg, w, h } = buildSvg(this.stageEl, this.drawn.bounds, background);
