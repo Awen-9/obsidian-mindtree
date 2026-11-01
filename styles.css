@@ -31,25 +31,47 @@
 .mt-toc {
 	display: none;
 	flex: 0 0 220px;
+	flex-direction: column;
 	box-sizing: border-box;
-	padding: 6px 0;
 	border-right: 1px solid var(--background-modifier-border);
-	overflow-y: auto;
+	overflow: hidden;
 	font-size: var(--font-ui-small);
 	-webkit-user-select: none;
 	user-select: none;
 }
 
 .mt-toc.is-open {
-	display: block;
+	display: flex;
+}
+
+.mt-toc-head {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.mt-toc-head input {
+	flex: 1;
+	min-width: 0;
+}
+
+.mt-toc-list {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 6px 0;
 }
 
 .mt-toc-item {
+	display: flex;
+	align-items: center;
+	gap: 4px;
 	padding: 3px 12px 3px 8px;
 	overflow: hidden;
 	color: var(--text-muted);
-	text-overflow: ellipsis;
-	white-space: nowrap;
 	cursor: pointer;
 }
 
@@ -61,6 +83,34 @@
 .mt-toc-item.is-active {
 	background: var(--background-modifier-hover);
 	color: var(--text-accent);
+}
+
+.mt-toc-item.is-dimmed {
+	color: var(--text-faint);
+}
+
+.mt-toc-caret {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 14px;
+	height: 14px;
+	color: var(--text-faint);
+	font-size: 11px;
+	line-height: 1;
+}
+
+.mt-toc-caret:hover {
+	color: var(--text-normal);
+}
+
+.mt-toc-label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .mt-toc-empty {

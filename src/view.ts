@@ -38,7 +38,7 @@ import { findMatches, foldedAncestors } from "./search.ts";
 import { t } from "./i18n.ts";
 import { THEMES } from "./themes.ts";
 import { toggleTask } from "./task.ts";
-import { activeHeading, tocEntries } from "./toc.ts";
+import { activeHeading, filterHeadings, headingTree, tocEntries } from "./toc.ts";
 import { buildToolbar } from "./toolbar.ts";
 import { Viewport } from "./viewport.ts";
 import type MindTreePlugin from "./main.ts";
@@ -58,7 +58,12 @@ export class MindView extends ItemView {
 	private drawn: DrawResult | null = null;
 	private hostEl!: HTMLElement;
 	private tocEl!: HTMLElement;
+	private tocList!: HTMLElement;
+	private tocSearchInput!: HTMLInputElement;
+	private tocClearBtn!: HTMLElement;
 	private tocItems = new Map<string, HTMLElement>();
+	private tocCollapsed = new Set<string>();
+	private tocQuery = "";
 	private stageEl!: HTMLElement;
 	private viewport!: Viewport;
 	private searchEl!: HTMLElement;
@@ -114,6 +119,7 @@ export class MindView extends ItemView {
 		this.tocEl = body.createDiv({ cls: "mt-toc" });
 		this.tocEl.toggleClass("is-open", this.plugin.isTocOpen());
 		this.tocEl.addEventListener("click", (e) => this.onTocClick(e));
+		this.buildToc();
 		const main = body.createDiv({ cls: "mt-main" });
 		this.hostEl = main.createDiv({ cls: "mt-host" });
 		this.hostEl.dataset.hintEmpty = t("hint.empty");
@@ -245,7 +251,8 @@ export class MindView extends ItemView {
 		this.selectedKey = key;
 		if (this.recallSync()) this.render();
 		this.drawn?.els.get(key)?.classList.add("is-selected");
-		this.markToc();
+		if (this.revealInToc(this.selected())) this.renderToc();
+		else this.markToc();
 		this.renderNote();
 		this.ensureVisible();
 		if (sync) this.syncSource();
@@ -688,6 +695,7 @@ export class MindView extends ItemView {
 		if (folded.length) this.persistCollapsed();
 		this.selectedKey = node.key;
 		this.recallSync();
+		this.revealInToc(node);
 		this.render();
 		this.syncSource();
 	}
@@ -699,21 +707,116 @@ export class MindView extends ItemView {
 		this.renderToc();
 	}
 
+	/** Build the fixed search header and the scrollable list that holds the entries. */
+	private buildToc(): void {
+		const head = this.tocEl.createDiv({ cls: "mt-toc-head" });
+		this.tocSearchInput = head.createEl("input", {
+			type: "text",
+			attr: { placeholder: t("toc.searchPlaceholder") },
+		});
+		const btn = (icon: string, label: string, run: () => void) => {
+			const b = head.createEl("button", { cls: "clickable-icon", attr: { "aria-label": label } });
+			setIcon(b, icon);
+			b.addEventListener("click", run);
+		};
+		btn("chevrons-up-down", t("toc.expandAll"), () => this.expandTocAll());
+		btn("chevrons-down-up", t("toc.collapseAll"), () => this.collapseTocAll());
+		this.tocClearBtn = head.createEl("button", {
+			cls: "clickable-icon",
+			attr: { "aria-label": t("toc.clear") },
+		});
+		setIcon(this.tocClearBtn, "x");
+		this.tocClearBtn.style.display = "none";
+		this.tocClearBtn.addEventListener("click", () => {
+			this.tocSearchInput.value = "";
+			this.applyTocQuery();
+			this.tocSearchInput.focus();
+		});
+		this.tocSearchInput.addEventListener("input", (e) => {
+			if (!(e as InputEvent).isComposing) this.applyTocQuery();
+		});
+		this.tocSearchInput.addEventListener("compositionend", () => this.applyTocQuery());
+		this.tocSearchInput.addEventListener("keydown", (e) => {
+			if (e.isComposing) return;
+			if (e.key !== "Escape") return;
+			e.preventDefault();
+			this.tocSearchInput.value = "";
+			this.applyTocQuery();
+			this.hostEl.focus({ preventScroll: true });
+		});
+		this.tocList = this.tocEl.createDiv({ cls: "mt-toc-list" });
+	}
+
+	private expandTocAll(): void {
+		this.tocCollapsed.clear();
+		this.renderToc();
+	}
+
+	private collapseTocAll(): void {
+		const tree = headingTree(tocEntries(this.outline?.nodes ?? []));
+		for (const [n, kids] of tree.children) if (kids.length) this.tocCollapsed.add(n.key);
+		this.renderToc();
+	}
+
+	/** Unfold the collapsed TOC branches that hide `node`'s heading; returns true when the TOC changed. */
+	private revealInToc(node: OutlineNode): boolean {
+		const active = activeHeading(node);
+		if (!active) return false;
+		let changed = false;
+		for (let p: OutlineNode | null = active.parent; p; p = p.parent) {
+			if (p.kind === "heading" && this.tocCollapsed.delete(p.key)) changed = true;
+		}
+		return changed;
+	}
+
+	private applyTocQuery(): void {
+		this.tocQuery = this.tocSearchInput.value.trim();
+		this.tocClearBtn.style.display = this.tocQuery ? "" : "none";
+		this.renderToc();
+	}
+
 	private renderToc(): void {
-		if (!this.tocEl?.hasClass("is-open")) return;
-		this.tocEl.empty();
+		if (!this.tocEl?.hasClass("is-open") || !this.tocList) return;
+		this.tocList.empty();
 		this.tocItems.clear();
-		const entries = tocEntries(this.outline?.nodes ?? []);
-		if (!entries.length) {
-			this.tocEl.createDiv({ cls: "mt-toc-empty", text: t("toc.empty") });
+		const headings = tocEntries(this.outline?.nodes ?? []);
+		if (!headings.length) {
+			this.tocList.createDiv({ cls: "mt-toc-empty", text: t("toc.empty") });
 			return;
 		}
-		for (const n of entries) {
-			const label = displayText(n.text);
-			const item = this.tocEl.createDiv({ cls: "mt-toc-item", text: label, attr: { title: label } });
-			item.dataset.key = n.key;
-			item.style.paddingLeft = `${8 + (n.depth - 1) * 14}px`;
-			this.tocItems.set(n.key, item);
+		const filter = filterHeadings(headings, this.tocQuery);
+		const tree = headingTree(headings);
+
+		const renderLevel = (nodes: OutlineNode[]): void => {
+			for (const n of nodes) {
+				const kids = tree.children.get(n) ?? [];
+				const label = displayText(n.text);
+				const item = this.tocList.createDiv({ cls: "mt-toc-item" });
+				item.dataset.key = n.key;
+				item.style.paddingLeft = `${8 + (n.depth - 1) * 14}px`;
+				const caret = item.createSpan({ cls: "mt-toc-caret" });
+				if (kids.length) {
+					const folded = !filter && this.tocCollapsed.has(n.key);
+					caret.dataset.key = n.key;
+					caret.textContent = folded ? "▸" : "▾";
+				}
+				item.createSpan({ cls: "mt-toc-label", text: label, attr: { title: label } });
+				if (filter && !filter.matched.has(n)) item.toggleClass("is-dimmed", true);
+				this.tocItems.set(n.key, item);
+
+				const folded = !filter && this.tocCollapsed.has(n.key);
+				if (kids.length && !folded) {
+					const shown = filter ? kids.filter((c) => filter.visible.has(c)) : kids;
+					renderLevel(shown);
+				}
+			}
+		};
+
+		const roots = filter ? tree.roots.filter((r) => filter.visible.has(r)) : tree.roots;
+		renderLevel(roots);
+		if (!this.tocItems.size && filter) {
+			this.tocList.createDiv({ cls: "mt-toc-empty", text: t("toc.noMatch") });
+			return;
 		}
 		this.markToc();
 	}
@@ -727,6 +830,14 @@ export class MindView extends ItemView {
 	}
 
 	private onTocClick(e: MouseEvent): void {
+		const caret = (e.target as HTMLElement).closest<HTMLElement>(".mt-toc-caret");
+		const caretKey = caret?.dataset.key;
+		if (caretKey !== undefined && !this.tocQuery) {
+			if (this.tocCollapsed.has(caretKey)) this.tocCollapsed.delete(caretKey);
+			else this.tocCollapsed.add(caretKey);
+			this.renderToc();
+			return;
+		}
 		const key = (e.target as HTMLElement).closest<HTMLElement>(".mt-toc-item")?.dataset.key;
 		const node = key ? findByKey(this.outline, key) : null;
 		if (!node || this.editing) return;
