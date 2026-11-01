@@ -1,0 +1,21 @@
+{
+	"name": "obsidian-mindtree",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Edit and fold Markdown outlines as an XMind-style mind map in Obsidian.",
+	"author": "Awen",
+	"license": "MIT",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc --noEmit && node esbuild.config.mjs production",
+		"test": "node --test \"test/*.test.ts\"",
+		"deploy": "bash scripts/deploy.sh"
+	},
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"esbuild": "^0.25.0",
+		"obsidian": "latest",
+		"typescript": "^5.6.0"
+	}
+}
