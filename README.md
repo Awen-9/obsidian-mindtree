@@ -4,7 +4,7 @@ Edit and fold Markdown outlines as an XMind-style mind map in Obsidian. The note
 
 [中文说明](README.zh-CN.md)
 
-> The interface follows Obsidian's language (Chinese or English). Desktop only.
+> The interface follows Obsidian's language (Chinese or English). Works on desktop and mobile.
 
 ![A note shown as a mind map with the notes panel open](docs/map.png)
 
@@ -19,8 +19,8 @@ Edit and fold Markdown outlines as an XMind-style mind map in Obsidian. The note
 - **Folding**, saved per note. Keys `1` to `9` show that many levels.
 - **Search** across node text and notes.
 - **Task checkboxes** (`- [ ]`) can be ticked on the map. Cmd/Ctrl+click opens a link inside a node.
-- **Table of contents** sidebar built from headings, live two-way sync with the Markdown source in a side pane.
-- **Five themes** and **PNG / SVG export**.
+- **Table of contents** sidebar built from headings, with fold, search, expand/collapse-all, and live two-way sync with the map and the Markdown source.
+- **Five themes** and **PNG / SVG / OPML export**.
 
 ## Use
 
@@ -60,11 +60,11 @@ Turn it on from the toolbar (eye icon) or the command **Toggle recall mode**. Se
 
 ## What is stored where
 
-Notes are never modified except by your own edits. Fold state, theme and panel visibility are kept in the plugin's `data.json`, keyed by file path.
+Notes are never modified except by your own edits. Map and table-of-contents fold state, theme and panel visibility are kept in the plugin's `data.json`, keyed by file path.
 
 ## Install
 
-Until the plugin is listed in Community plugins, copy `main.js`, `manifest.json` and `styles.css` from a release into `<vault>/.obsidian/plugins/mindtree/` and enable it in Settings.
+Search for **MindTree** in Settings → Community plugins. Until it is listed there, copy `main.js`, `manifest.json` and `styles.css` from a release into `<vault>/.obsidian/plugins/mindtree/` and enable it in Settings.
 
 ## Develop
 

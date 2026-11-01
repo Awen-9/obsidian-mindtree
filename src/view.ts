@@ -26,7 +26,7 @@ import {
 import { displayText, drawMap, type DrawResult } from "./draw.ts";
 import { startDrag, type DropTarget } from "./drag.ts";
 import { startInlineEdit } from "./editor.ts";
-import { buildSvg, svgToPng } from "./exporter.ts";
+import { buildSvg, outlineToOpml, svgToPng } from "./exporter.ts";
 import { History } from "./history.ts";
 import { handleKey } from "./keys.ts";
 import { firstLink } from "./links.ts";
@@ -156,6 +156,7 @@ export class MindView extends ItemView {
 		this.hostEl?.removeClass("is-recall");
 		this.setText(await this.app.vault.read(file));
 		this.collapsed = this.plugin.getCollapsed(file.path, this.outline);
+		this.tocCollapsed = this.plugin.getTocCollapsed(file.path, this.outline);
 		this.history.clear();
 		this.selectedKey = "";
 		this.needsFit = true;
@@ -356,7 +357,12 @@ export class MindView extends ItemView {
 	private async copyNode(cut: boolean): Promise<void> {
 		const md = copyBlock(this.outline, this.selected());
 		if (md === null) return;
-		await navigator.clipboard.writeText(md);
+		try {
+			await navigator.clipboard.writeText(md);
+		} catch {
+			new Notice(t("notice.clipboard"));
+			return;
+		}
 		if (cut) await this.remove();
 		else new Notice(t("notice.copied"));
 	}
@@ -533,7 +539,7 @@ export class MindView extends ItemView {
 	private openLink(node: OutlineNode): boolean {
 		const link = firstLink(node.text);
 		if (!link || !this.file) return false;
-		if (link.external) activeWindow.open(link.target);
+		if (link.external) window.open(link.target, "_blank", "noopener");
 		else void this.app.workspace.openLinkText(link.target, this.file.path, true);
 		return true;
 	}
@@ -747,14 +753,20 @@ export class MindView extends ItemView {
 		this.tocList = this.tocEl.createDiv({ cls: "mt-toc-list" });
 	}
 
+	private persistTocCollapsed(): void {
+		if (this.file && !this.recall) this.plugin.setTocCollapsed(this.file.path, [...this.tocCollapsed]);
+	}
+
 	private expandTocAll(): void {
 		this.tocCollapsed.clear();
+		this.persistTocCollapsed();
 		this.renderToc();
 	}
 
 	private collapseTocAll(): void {
 		const tree = headingTree(tocEntries(this.outline?.nodes ?? []));
 		for (const [n, kids] of tree.children) if (kids.length) this.tocCollapsed.add(n.key);
+		this.persistTocCollapsed();
 		this.renderToc();
 	}
 
@@ -766,6 +778,7 @@ export class MindView extends ItemView {
 		for (let p: OutlineNode | null = active.parent; p; p = p.parent) {
 			if (p.kind === "heading" && this.tocCollapsed.delete(p.key)) changed = true;
 		}
+		if (changed) this.persistTocCollapsed();
 		return changed;
 	}
 
@@ -835,6 +848,7 @@ export class MindView extends ItemView {
 		if (caretKey !== undefined && !this.tocQuery) {
 			if (this.tocCollapsed.has(caretKey)) this.tocCollapsed.delete(caretKey);
 			else this.tocCollapsed.add(caretKey);
+			this.persistTocCollapsed();
 			this.renderToc();
 			return;
 		}
@@ -986,7 +1000,25 @@ export class MindView extends ItemView {
 		const menu = new Menu();
 		menu.addItem((item) => item.setTitle(t("export.png")).onClick(() => void this.exportImage("png")));
 		menu.addItem((item) => item.setTitle(t("export.svg")).onClick(() => void this.exportImage("svg")));
+		menu.addItem((item) => item.setTitle(t("export.opml")).onClick(() => void this.exportOpml()));
 		menu.showAtMouseEvent(e);
+	}
+
+	/** Write the full outline as OPML next to the note. */
+	async exportOpml(): Promise<void> {
+		const file = this.file;
+		if (!file) return;
+		try {
+			const opml = outlineToOpml(this.outline);
+			const dir = file.parent && !file.parent.isRoot() ? `${file.parent.path}/` : "";
+			const path = normalizePath(`${dir}${file.basename}.mindmap.opml`);
+			const existing = this.app.vault.getAbstractFileByPath(path);
+			if (existing instanceof TFile) await this.app.vault.modify(existing, opml);
+			else await this.app.vault.create(path, opml);
+			new Notice(t("export.done", { path }));
+		} catch (err) {
+			new Notice(t("export.fail", { error: err instanceof Error ? err.message : String(err) }));
+		}
 	}
 
 	/** Write the map as it is currently drawn (folds included) next to the note. */

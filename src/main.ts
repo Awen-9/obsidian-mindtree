@@ -2,31 +2,37 @@ import { EditorView } from "@codemirror/view";
 import { MarkdownView, Plugin, TFile, editorInfoField } from "obsidian";
 import type { Outline } from "./outline.ts";
 import { t } from "./i18n.ts";
+import { MindTreeSettingTab } from "./settings.ts";
 import { isTheme, type ThemeId } from "./themes.ts";
+import { tocEntries } from "./toc.ts";
 import { MindView, VIEW_TYPE } from "./view.ts";
 
 interface PluginData {
 	/** vault path -> keys of folded nodes */
 	collapsed: Record<string, string[]>;
+	/** vault path -> keys of folded headings in the table of contents */
+	tocCollapsed: Record<string, string[]>;
 	theme: ThemeId;
 	toc: boolean;
 	note: boolean;
 }
 
 export default class MindTreePlugin extends Plugin {
-	private data: PluginData = { collapsed: {}, theme: "default", toc: true, note: false };
+	private data: PluginData = { collapsed: {}, tocCollapsed: {}, theme: "default", toc: true, note: false };
 	private saveTimer: number | null = null;
 
 	async onload(): Promise<void> {
 		const saved = (await this.loadData()) as Partial<PluginData> | null;
 		this.data = {
 			collapsed: saved?.collapsed ?? {},
+			tocCollapsed: saved?.tocCollapsed ?? {},
 			theme: isTheme(saved?.theme) ? saved.theme : "default",
 			toc: saved?.toc ?? true,
 			note: saved?.note ?? false,
 		};
 
 		this.registerView(VIEW_TYPE, (leaf) => new MindView(leaf, this));
+		this.addSettingTab(new MindTreeSettingTab(this.app, this));
 		this.addRibbonIcon("network", t("ribbon"), () => this.toggleActive());
 		this.registerEditorExtension(
 			EditorView.updateListener.of((u) => {
@@ -191,6 +197,17 @@ export default class MindTreePlugin extends Plugin {
 	setCollapsed(path: string, keys: string[]): void {
 		if (keys.length) this.data.collapsed[path] = keys;
 		else delete this.data.collapsed[path];
+		this.scheduleSave();
+	}
+
+	getTocCollapsed(path: string, outline: Outline): Set<string> {
+		const valid = new Set(tocEntries(outline.nodes).map((n) => n.key));
+		return new Set((this.data.tocCollapsed[path] ?? []).filter((k) => valid.has(k)));
+	}
+
+	setTocCollapsed(path: string, keys: string[]): void {
+		if (keys.length) this.data.tocCollapsed[path] = keys;
+		else delete this.data.tocCollapsed[path];
 		this.scheduleSave();
 	}
 

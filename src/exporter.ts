@@ -1,4 +1,9 @@
+import type { Outline, OutlineNode } from "./outline.ts";
 import type { Bounds } from "./viewport.ts";
+
+/** The active window's document on desktop; falls back to `document` on mobile. */
+const g = globalThis as { activeDocument?: Document; document?: Document };
+const doc: Document = g.activeDocument ?? g.document ?? ({} as Document);
 
 const esc = (s: string) =>
 	s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -14,7 +19,7 @@ interface TextLine {
 
 /** Visual lines of a text node, so the export wraps exactly where the screen does. */
 function textLines(tn: Text, ox: number, oy: number, scale: number): TextLine[] {
-	const range = activeDocument.createRange();
+	const range = doc.createRange();
 	const lines: (TextLine & { top: number; h: number })[] = [];
 	let cur: (typeof lines)[number] | null = null;
 	let i = 0;
@@ -109,7 +114,7 @@ export async function svgToPng(svg: string, w: number, h: number): Promise<Array
 		const img = new Image();
 		img.src = url;
 		await img.decode();
-		const canvas = activeDocument.createElement("canvas");
+		const canvas = doc.createElement("canvas");
 		canvas.width = Math.round(w * scale);
 		canvas.height = Math.round(h * scale);
 		canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -119,4 +124,17 @@ export async function svgToPng(svg: string, w: number, h: number): Promise<Array
 	} finally {
 		URL.revokeObjectURL(url);
 	}
+}
+
+/** Serialise the full outline to OPML for interchange with other outline and mind-map tools. */
+export function outlineToOpml(outline: Outline): string {
+	const walk = (node: OutlineNode): string => {
+		if (node.kind === "root") return node.children.map(walk).join("");
+		const note = node.note ? ` _note="${esc(node.note)}"` : "";
+		return `<outline text="${esc(node.text)}"${note}>${node.children.map(walk).join("")}</outline>`;
+	};
+	return (
+		`<?xml version="1.0" encoding="UTF-8"?>\n` +
+		`<opml version="2.0">\n  <head><title>${esc(outline.root.text)}</title></head>\n  <body>${walk(outline.root)}</body>\n</opml>\n`
+	);
 }
