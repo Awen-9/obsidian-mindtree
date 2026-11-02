@@ -79,7 +79,6 @@ export default class MindTreePlugin extends Plugin {
 			["toggle-toc", t("cmd.toc"), (v) => v.toggleToc()],
 			["toggle-note", t("cmd.notes"), (v) => v.toggleNote()],
 			["edit-note", t("cmd.editNote"), (v) => v.editNote()],
-			["toggle-recall", t("cmd.recall"), (v) => v.toggleRecall()],
 			["export-png", t("cmd.png"), (v) => void v.exportImage("png")],
 			["export-svg", t("cmd.svg"), (v) => void v.exportImage("svg")],
 			["source-beside", t("cmd.source"), (v) => v.file && void this.openSourceBeside(v.file)],

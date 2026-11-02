@@ -36,7 +36,6 @@ import { startMarquee } from "./marquee.ts";
 import { navigate, type Dir } from "./nav.ts";
 import { noteHasNodes, noteOf, setNodeNote } from "./note.ts";
 import { findByKey, findByLine, parseOutline, type Outline, type OutlineNode } from "./outline.ts";
-import { isQuestion, openQuestion, recallFolds } from "./recall.ts";
 import { findMatches, foldedAncestors } from "./search.ts";
 import { t } from "./i18n.ts";
 import { THEMES } from "./themes.ts";
@@ -84,9 +83,6 @@ export class MindView extends ItemView {
 	private noteBody!: HTMLElement;
 	private noteSig = "";
 	private noteEditing = false;
-	private recall = false;
-	private recallOpen: string | null = null;
-	private savedCollapsed = new Set<string>();
 
 	constructor(
 		leaf: WorkspaceLeaf,
@@ -131,7 +127,6 @@ export class MindView extends ItemView {
 		const main = body.createDiv({ cls: "mt-main" });
 		this.hostEl = main.createDiv({ cls: "mt-host" });
 		this.hostEl.dataset.hintEmpty = t("hint.empty");
-		this.hostEl.dataset.hintRecall = t("hint.recall");
 		this.hostEl.dataset.hintPick = t("hint.pick");
 		this.buildNote(main);
 		this.hostEl.tabIndex = 0;
@@ -161,8 +156,6 @@ export class MindView extends ItemView {
 		const file = this.app.vault.getAbstractFileByPath(path);
 		if (!(file instanceof TFile)) return;
 		this.file = file;
-		this.recall = false;
-		this.hostEl?.removeClass("is-recall");
 		this.setText(await this.app.vault.read(file));
 		this.collapsed = this.plugin.getCollapsed(file.path, this.outline);
 		this.tocCollapsed = this.plugin.getTocCollapsed(file.path, this.outline);
@@ -199,7 +192,6 @@ export class MindView extends ItemView {
 		if (data === this.text) return;
 		this.setText(data);
 		this.fixSelection();
-		this.recallSync();
 		this.render();
 	}
 
@@ -284,7 +276,6 @@ export class MindView extends ItemView {
 		else if (key !== this.selectedKey && this.selected().kind !== "root") this.picked.add(this.selectedKey);
 		this.picked.delete(key);
 		this.selectedKey = key;
-		if (this.recallSync()) this.render();
 		this.markSelection();
 		if (this.revealInToc(this.selected())) this.renderToc();
 		else this.markToc();
@@ -328,7 +319,7 @@ export class MindView extends ItemView {
 	}
 
 	private persistCollapsed(): void {
-		if (this.file && !this.recall) this.plugin.setCollapsed(this.file.path, [...this.collapsed]);
+		if (this.file) this.plugin.setCollapsed(this.file.path, [...this.collapsed]);
 	}
 
 	/** Carry fold state over to new keys; each pair is [old key, new key] of a node that changed. */
@@ -452,12 +443,6 @@ export class MindView extends ItemView {
 	private toggleFold(key: string): void {
 		const node = findByKey(this.outline, key);
 		if (!node) return;
-		if (this.recall && isQuestion(this.outline, node)) {
-			this.recallOpen = this.recallOpen === key ? null : key;
-			this.applyRecallFolds();
-			this.render();
-			return;
-		}
 		if (!node.children.length) return;
 		if (!this.collapsed.delete(key)) this.collapsed.add(key);
 		this.fixSelection();
@@ -465,52 +450,8 @@ export class MindView extends ItemView {
 		this.render();
 	}
 
-	/** Fold every question except the open one. Returns whether anything changed. */
-	private applyRecallFolds(): boolean {
-		const next = new Set(recallFolds(this.outline, this.recallOpen));
-		let changed = false;
-		for (const n of this.outline.nodes) {
-			if (!n.children.length || !isQuestion(this.outline, n)) continue;
-			if (next.has(n.key) === this.collapsed.has(n.key)) continue;
-			if (next.has(n.key)) this.collapsed.add(n.key);
-			else this.collapsed.delete(n.key);
-			changed = true;
-		}
-		return changed;
-	}
-
-	/** After the selection moved, show only the answer that belongs to it. Returns whether the map needs redrawing. */
-	private recallSync(): boolean {
-		if (!this.recall) return false;
-		this.recallOpen = openQuestion(this.outline, this.selected(), this.recallOpen);
-		return this.applyRecallFolds();
-	}
-
-	toggleRecall(): void {
-		if (this.editing || !this.file) return;
-		this.recall = !this.recall;
-		this.hostEl.toggleClass("is-recall", this.recall);
-		if (this.recall) {
-			this.savedCollapsed = new Set(this.collapsed);
-			this.recallOpen = null;
-			this.applyRecallFolds();
-		} else {
-			this.collapsed = this.savedCollapsed;
-		}
-		this.fixSelection();
-		this.needsFit = true;
-		this.noteSig = "";
-		this.render();
-	}
-
-	private blocked(): boolean {
-		if (this.recall) new Notice(t("notice.recallBlocked"));
-		return this.recall;
-	}
-
 	/** Show `n` levels below the root; every deeper branch is folded. */
 	private setLevel(n: number): void {
-		if (this.blocked()) return;
 		for (const node of [this.outline.root, ...this.outline.nodes]) {
 			if (!node.children.length) continue;
 			if (node.depth >= n) this.collapsed.add(node.key);
@@ -527,13 +468,8 @@ export class MindView extends ItemView {
 		const sel = items.find((i) => i.node.key === this.selectedKey) ?? items[0];
 		const r = navigate(items, sel, dir);
 		if (r.expand) {
-			if (this.recall && isQuestion(this.outline, sel.node)) {
-				this.recallOpen = sel.node.key;
-				this.applyRecallFolds();
-			} else {
-				this.collapsed.delete(sel.node.key);
-				this.persistCollapsed();
-			}
+			this.collapsed.delete(sel.node.key);
+			this.persistCollapsed();
 			this.render();
 			this.go(dir);
 		} else if (r.item) {
@@ -543,11 +479,6 @@ export class MindView extends ItemView {
 
 	private onKey(e: KeyboardEvent): void {
 		if (this.editing || e.isComposing) return;
-		if (this.recall && e.key === "Escape") {
-			e.preventDefault();
-			this.toggleRecall();
-			return;
-		}
 		if (this.picked.size && e.key === "Escape") {
 			e.preventDefault();
 			this.picked.clear();
@@ -559,22 +490,19 @@ export class MindView extends ItemView {
 			this.togglePickMode();
 			return;
 		}
-		const edit = <A extends unknown[]>(fn: (...a: A) => void) => (...a: A) => {
-			if (!this.blocked()) fn(...a);
-		};
 		const handled = handleKey(e, {
-			undoRedo: edit((redo) => void this.undoRedo(redo)),
-			move: edit((dir) => void this.move(dir)),
+			undoRedo: (redo) => void this.undoRedo(redo),
+			move: (dir) => void this.move(dir),
 			go: (dir) => this.go(dir),
-			addNode: edit((kind) => void this.addNode(kind)),
-			remove: edit(() => void this.remove()),
-			edit: edit(() => this.beginEdit()),
+			addNode: (kind) => void this.addNode(kind),
+			remove: () => void this.remove(),
+			edit: () => this.beginEdit(),
 			fold: () => this.toggleFold(this.selectedKey),
 			level: (n) => this.setLevel(n),
 			search: () => this.openSearch(),
 			copy: () => void this.copyNode(false),
-			cut: edit(() => void this.copyNode(true)),
-			paste: edit(() => void this.pasteNode()),
+			cut: () => void this.copyNode(true),
+			paste: () => void this.pasteNode(),
 		});
 		if (handled) e.preventDefault();
 	}
@@ -598,15 +526,15 @@ export class MindView extends ItemView {
 			} else if (node && target.closest(".mt-check")) {
 				this.select(key);
 				e.preventDefault();
-				if (!this.blocked()) void this.toggleTaskNode(node);
+				void this.toggleTaskNode(node);
 			} else if (node && (e.metaKey || e.ctrlKey) && this.openLink(node)) {
 				this.select(key);
 				e.preventDefault();
-			} else if (node && this.pickMode && node.kind !== "root" && !this.recall) {
+			} else if (node && this.pickMode && node.kind !== "root") {
 				// In multi-select mode a tap adds or removes the node; dragging a picked node moves them all.
 				const keep = this.picked.has(key) || key === this.selectedKey;
 				this.beginDrag(e, keep ? topmost(this.selection()) : [node], () => this.togglePick(key));
-			} else if (node && node.kind !== "root" && !this.recall) {
+			} else if (node && node.kind !== "root") {
 				// Pressing on a node that is already part of a multi-selection drags all of them.
 				const keep = this.picked.size > 0 && (this.picked.has(key) || key === this.selectedKey);
 				if (keep) this.select(key, true, true);
@@ -627,7 +555,7 @@ export class MindView extends ItemView {
 
 	/** Whether a press on empty space draws a selection rectangle; Shift swaps it with panning. */
 	private boxSelects(e: PointerEvent): boolean {
-		return !this.recall && (this.pickMode || this.plugin.dragSelects() !== e.shiftKey);
+		return this.pickMode || this.plugin.dragSelects() !== e.shiftKey;
 	}
 
 	togglePickMode(): void {
@@ -707,12 +635,12 @@ export class MindView extends ItemView {
 		const nodeEl = (e.target as HTMLElement).closest<HTMLElement>(".mt-node");
 		if (!nodeEl || this.editing) return;
 		this.select(nodeEl.dataset.key ?? "");
-		if (!this.blocked()) this.beginEdit();
+		this.beginEdit();
 	}
 
 	private buildBar(bar: HTMLElement): void {
 		const act = (fn: () => unknown) => () => {
-			if (!this.editing && !this.blocked()) void fn();
+			if (!this.editing) void fn();
 		};
 		buildToolbar(bar, [
 			[
@@ -739,7 +667,6 @@ export class MindView extends ItemView {
 				{ icon: "search", label: t("tb.search"), run: () => this.openSearch() },
 				{ icon: "list", label: t("tb.toc"), run: () => this.toggleToc() },
 				{ icon: "sticky-note", label: t("tb.notes"), run: () => this.toggleNote() },
-				{ icon: "eye-off", label: t("tb.recall"), run: () => this.toggleRecall() },
 			],
 			[
 				{ icon: "zoom-out", label: t("tb.zoomOut"), run: () => this.viewport.zoomCenter(1 / 1.2) },
@@ -835,7 +762,6 @@ export class MindView extends ItemView {
 		if (folded.length) this.persistCollapsed();
 		this.selectedKey = node.key;
 		this.picked.clear();
-		this.recallSync();
 		this.revealInToc(node);
 		this.render();
 		this.syncSource();
@@ -889,7 +815,7 @@ export class MindView extends ItemView {
 	}
 
 	private persistTocCollapsed(): void {
-		if (this.file && !this.recall) this.plugin.setTocCollapsed(this.file.path, [...this.tocCollapsed]);
+		if (this.file) this.plugin.setTocCollapsed(this.file.path, [...this.tocCollapsed]);
 	}
 
 	private expandTocAll(): void {
@@ -1034,16 +960,10 @@ export class MindView extends ItemView {
 		if (!this.noteEl?.hasClass("is-open") || this.noteEditing || !this.file) return;
 		const node = this.selected();
 		const text = noteOf(this.outline, node);
-		const hidden = text !== "" && this.recall && isQuestion(this.outline, node) && this.recallOpen !== node.key;
-		const sig = `${node.key}\0${hidden}\0${text}`;
+		const sig = `${node.key}\0${text}`;
 		if (sig === this.noteSig) return;
 		this.noteSig = sig;
 		this.noteTitle.setText(node.kind === "root" ? t("note.title") : t("note.titleFor", { name: displayText(node.text) }));
-		if (hidden) {
-			this.noteBody.empty();
-			this.noteBody.createDiv({ cls: "mt-note-empty", text: t("note.hidden") });
-			return;
-		}
 		if (!text) {
 			this.noteBody.empty();
 			this.noteBody.createDiv({
@@ -1062,7 +982,7 @@ export class MindView extends ItemView {
 	editNote(): void {
 		const key = this.selectedKey;
 		const node = this.selected();
-		if (node.kind === "root" || this.editing || this.blocked()) return;
+		if (node.kind === "root" || this.editing) return;
 		if (!this.noteEl.hasClass("is-open")) this.toggleNote();
 		this.editing = true;
 		this.noteEditing = true;

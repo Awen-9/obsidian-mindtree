@@ -44,28 +44,6 @@ A sidebar built from headings, with:
 - **Search** to filter headings, showing each match together with its ancestors.
 - **Two-way sync**: click a heading to centre the map, or click a node to reveal and highlight its heading in the sidebar.
 
-### Recall mode
-
-Turn a list into flashcards. Hide the answers under each first-level list item and reveal them one at a time. It changes the view only — never the file.
-
-Write questions as first-level list items and put each answer in the item's body text or in its children:
-
-```markdown
-## Science
-- What is photosynthesis?
-  Plants use sunlight to convert carbon dioxide and water into glucose and oxygen.
-  - Takes place in chloroplasts
-  - Needs chlorophyll
-- What are the states of matter?
-  - Solid
-  - Liquid
-  - Gas
-```
-
-Turn it on from the toolbar (the eye icon) or the command **Toggle recall mode**. Select a question, think, then press Space to check yourself. Editing is disabled until you leave the mode.
-
-![Recall mode: answers stay folded until you reveal them](docs/recall.png)
-
 ### Search
 
 Search across node text and notes, and jump between matches.
@@ -92,12 +70,11 @@ A settings tab to choose the default theme, the default visibility of the table 
 | Delete | Remove the node and its branch (all selected nodes when several are selected) |
 | Shift+click, Shift+drag | Add nodes to the selection; Esc clears it |
 | Alt+Up / Alt+Down | Reorder among siblings |
-| Space | Fold or unfold (in recall mode: show or hide the answer) |
+| Space | Fold or unfold |
 | 1 to 9 | Show that many levels |
 | Cmd/Ctrl+C, X, V | Copy, cut, paste a branch |
 | Cmd/Ctrl+Z, Shift+Z | Undo, redo |
 | Cmd/Ctrl+F | Search |
-| Esc | Leave recall mode |
 
 ## Install
 

@@ -209,19 +209,14 @@
 	pointer-events: none;
 }
 
-.mt-host.is-recall::before,
 .mt-host.is-picking::before {
-	content: attr(data-hint-recall);
+	content: attr(data-hint-pick);
 	position: absolute;
 	left: 12px;
 	top: 8px;
 	color: var(--text-faint);
 	font-size: var(--font-ui-smaller);
 	pointer-events: none;
-}
-
-.mt-host.is-picking::before {
-	content: attr(data-hint-pick);
 }
 
 .mt-host.is-picking {
