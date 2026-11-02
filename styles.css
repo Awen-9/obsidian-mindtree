@@ -462,17 +462,61 @@
 	opacity: 0.35;
 }
 
+/* Drop preview: a prominent insertion line for before/after, a strong outline for a child. */
 .mt-node.mt-drop-child {
-	outline: 2px dashed var(--interactive-accent);
-	outline-offset: 3px;
+	outline: 3px solid var(--interactive-accent);
+	outline-offset: 4px;
+	box-shadow: 0 0 0 7px color-mix(in srgb, var(--interactive-accent) 22%, transparent);
 }
 
-.mt-node.mt-drop-before {
-	box-shadow: 0 -4px 0 var(--interactive-accent);
-}
-
+.mt-node.mt-drop-before,
 .mt-node.mt-drop-after {
-	box-shadow: 0 4px 0 var(--interactive-accent);
+	box-shadow: none;
+}
+
+.mt-node.mt-drop-before::before,
+.mt-node.mt-drop-after::before {
+	content: "";
+	position: absolute;
+	z-index: 5;
+	left: -26px;
+	width: calc(100% + 52px);
+	height: 4px;
+	border-radius: 2px;
+	background: var(--interactive-accent);
+	box-shadow: 0 0 0 1px var(--background-primary);
+	pointer-events: none;
+}
+
+.mt-node.mt-drop-before::before {
+	top: -10px;
+}
+
+.mt-node.mt-drop-after::before {
+	bottom: -10px;
+}
+
+.mt-node.mt-drop-before::after,
+.mt-node.mt-drop-after::after {
+	content: "";
+	position: absolute;
+	z-index: 6;
+	left: -28px;
+	right: auto;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--interactive-accent);
+	box-shadow: 0 0 0 2px var(--background-primary);
+	pointer-events: none;
+}
+
+.mt-node.mt-drop-before::after {
+	top: -12px;
+}
+
+.mt-node.mt-drop-after::after {
+	bottom: -12px;
 }
 
 .mt-drag-ghost {
