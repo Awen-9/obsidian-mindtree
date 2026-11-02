@@ -1,26 +1,50 @@
 # MindTree
 
-Edit and fold Markdown outlines as an XMind-style mind map in Obsidian. The note stays the only source of truth: headings and list items are the nodes, and every edit is written straight back to the Markdown file. No sidecar files, no private format.
+Turn Markdown outlines into an XMind-style mind map in Obsidian — then edit, fold and navigate it like a map. The note stays the single source of truth: headings and list items are the nodes, and every change is written straight back to the Markdown file. No sidecar files, no private format.
 
 [中文说明](README.zh-CN.md)
 
-> The interface follows Obsidian's language (Chinese or English). Works on desktop and mobile.
+> Works on desktop and mobile. The interface follows Obsidian's language (Chinese or English).
 
-![A note shown as a mind map with the notes panel open](docs/map.png)
+![A Markdown outline shown as a mind map](docs/map.png)
 
 ## Features
 
-- **Map from plain Markdown.** Headings (`#` to `######`) and nested lists become a left-to-right tree. Body text under a node is its note.
-- **Keyboard-first editing.** Add, rename, delete, reorder and re-parent nodes. Undo and redo cover every change.
+### Map from plain Markdown
+
+Open any `.md` file as a mind map. Headings (`#` to `######`) and nested lists become a left-to-right tree, and the body text under a node becomes its note. No import, no export — the note *is* the map.
+
+### Editing
+
+- **Keyboard-first.** Add, rename, delete, reorder and re-parent nodes. Undo and redo cover every change.
 - **Drag and drop** to move a node or a whole branch, with a drop indicator for child, before and after.
-- **Copy, cut and paste** whole branches. The clipboard holds ordinary Markdown, so you can paste into any note.
-- **Notes panel.** Select a node to read its note rendered as Markdown (code blocks included). Edit it in place.
-- **Recall mode.** Hide the answers under each first-level list item and reveal them one at a time, like flash cards. It changes the view only, never the file.
-- **Folding**, saved per note. Keys `1` to `9` show that many levels.
+- **Copy, cut and paste** whole branches. The clipboard holds plain Markdown, so you can paste into any note.
+- **Task checkboxes** (`- [ ]`) can be ticked directly on the map. Cmd/Ctrl+click opens a link inside a node.
+
+### Notes panel
+
+Select a node to read its note rendered as Markdown — code blocks included — and edit it in place.
+
+### Table of contents
+
+A sidebar built from headings, with:
+
+- **Fold** and **expand / collapse all**.
+- **Search** to filter headings.
+- **Two-way sync**: click a heading to centre the map, or click a node to reveal and highlight its heading.
+
+### Recall mode
+
+Hide the answers under each first-level list item and reveal them one at a time, like flash cards. It changes the view only — never the file.
+
+![Recall mode: answers stay folded until you reveal them](docs/recall.png)
+
+### Search, themes, export and settings
+
 - **Search** across node text and notes.
-- **Task checkboxes** (`- [ ]`) can be ticked on the map. Cmd/Ctrl+click opens a link inside a node.
-- **Table of contents** sidebar built from headings, with fold, search, expand/collapse-all, and live two-way sync with the map and the Markdown source.
-- **Five themes** and **PNG / SVG / OPML export**.
+- **Five themes**.
+- **Export** as PNG, SVG or OPML.
+- **Settings tab** for the default theme and the default visibility of the table of contents and notes panels.
 
 ## Use
 
@@ -40,25 +64,25 @@ Click the ribbon icon, or run **Open current note as mind map** from the command
 | Cmd/Ctrl+F | Search |
 | Esc | Leave recall mode |
 
-### Recall mode
+## Recall mode example
 
-Write questions as first-level list items and put the answer in the item's body text or in its children:
+Write questions as first-level list items and put each answer in the item's body text or in its children:
 
 ```markdown
-## Collections
-- How does HashMap resolve collisions?
-  Linked list, converted to a red-black tree when a bucket grows long.
-  - Resize
-  - Load factor
-- ArrayList
-  - Backed by an array
+## Science
+- What is photosynthesis?
+  Plants use sunlight to convert carbon dioxide and water into glucose and oxygen.
+  - Takes place in chloroplasts
+  - Needs chlorophyll
+- What are the states of matter?
+  - Solid
+  - Liquid
+  - Gas
 ```
 
-Turn it on from the toolbar (eye icon) or the command **Toggle recall mode**. Select a question, think, then press Space to check yourself. Editing is disabled until you leave the mode.
+Turn it on from the toolbar (the eye icon) or the command **Toggle recall mode**. Select a question, think, then press Space to check yourself. Editing is disabled until you leave the mode.
 
-![Recall mode: answers are folded away until revealed](docs/recall.png)
-
-## What is stored where
+## Data
 
 Notes are never modified except by your own edits. Map and table-of-contents fold state, theme and panel visibility are kept in the plugin's `data.json`, keyed by file path.
 
@@ -75,7 +99,7 @@ npm run build
 npm run deploy -- /path/to/vault   # or set MINDTREE_VAULT
 ```
 
-To release, set the same version in `manifest.json`, `package.json` and `versions.json`, then push a tag with exactly that version (for example `0.1.0`, without a `v`). The workflow in `.github/workflows/release.yml` attaches the three files to a GitHub release.
+To release, bump the version in `manifest.json` and `versions.json`, then push a tag with exactly that version (for example `1.1.1`, without a `v`). The workflow in `.github/workflows/release.yml` attaches the three files to a GitHub release.
 
 ## License
 
