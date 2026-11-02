@@ -478,7 +478,7 @@
 .mt-drag-ghost {
 	position: absolute;
 	z-index: 10;
-	max-width: 240px;
+	max-width: 280px;
 	padding: 4px 10px;
 	border-radius: 6px;
 	background: var(--interactive-accent);
@@ -488,7 +488,25 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	pointer-events: none;
-	opacity: 0.85;
+	opacity: 0.9;
+}
+
+.mt-drag-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-weight: 500;
+}
+
+.mt-drag-hint {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	margin-top: 2px;
+	font-size: 11px;
+	opacity: 0.9;
+}
+
+.mt-drag-hint.is-empty {
+	display: none;
 }
 
 .mt-drag-ghost.is-refused {

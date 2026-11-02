@@ -610,6 +610,7 @@ export class MindView extends ItemView {
 			toStage: (x, y) => this.viewport.toStage(x, y),
 			isValid: (t) => moveNodes(this.outline, nodes, t.node, t.pos).text !== this.text,
 			refusal: (node) => t(`drop.${dropRefusal(nodes, node)}` as const),
+			describe: (target) => t(`drag.${target.pos}` as const, { name: displayText(target.node.text) }),
 			onDrop: (t) => void this.dropNodes(nodes, t),
 			onClick,
 		});

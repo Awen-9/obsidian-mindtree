@@ -17,6 +17,8 @@ export interface DragContext {
 	isValid(t: DropTarget): boolean;
 	/** why nothing can be dropped on a node, shown on the ghost */
 	refusal(node: OutlineNode): string;
+	/** where the node would land, shown on the ghost while it is over a valid target */
+	describe(target: DropTarget): string;
 	onDrop(t: DropTarget): void;
 	/** the pointer was released without moving */
 	onClick?(): void;
@@ -34,9 +36,10 @@ export function startDrag(e: PointerEvent, c: DragContext): void {
 	const moving = new Set(c.nodes);
 	const sources = c.nodes.map((n) => c.elOf(n.key));
 	let ghost: HTMLElement | null = null;
+	let hintEl: HTMLElement | null = null;
 	let hit: DropTarget | null = null;
 	let hitEl: HTMLElement | null = null;
-	let refused: OutlineNode | null = null;
+	let hintText: string | null = null;
 
 	/** The drop under the pointer, or the node that turns the drop down. */
 	const locate = (ev: PointerEvent): { target: DropTarget | null; over: OutlineNode | null } => {
@@ -54,13 +57,6 @@ export function startDrag(e: PointerEvent, c: DragContext): void {
 		return { target: null, over: it.node };
 	};
 
-	const setRefused = (node: OutlineNode | null) => {
-		if (node === refused || !ghost) return;
-		refused = node;
-		ghost.toggleClass("is-refused", !!node);
-		ghost.setText(node ? c.refusal(node) : c.label);
-	};
-
 	const setHit = (next: DropTarget | null) => {
 		if (next?.node === hit?.node && next?.pos === hit?.pos) return;
 		hitEl?.classList.remove(...DROP_CLASSES);
@@ -69,10 +65,24 @@ export function startDrag(e: PointerEvent, c: DragContext): void {
 		if (next) hitEl?.classList.add(`mt-drop-${next.pos}`);
 	};
 
+	/** Show where the node will land, or why it cannot land there. */
+	const setHint = (text: string, refused: boolean) => {
+		if (!ghost || !hintEl) return;
+		if (text !== hintText) {
+			hintText = text;
+			hintEl.setText(text);
+			hintEl.toggleClass("is-empty", !text);
+		}
+		ghost.toggleClass("is-refused", refused);
+	};
+
 	const move = (ev: PointerEvent) => {
 		if (!ghost) {
 			if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < THRESHOLD) return;
-			ghost = c.host.createDiv({ cls: "mt-drag-ghost", text: c.label });
+			ghost = c.host.createDiv({ cls: "mt-drag-ghost" });
+			ghost.createDiv({ cls: "mt-drag-label", text: c.label });
+			hintEl = ghost.createDiv({ cls: "mt-drag-hint is-empty" });
+			hintText = null;
 			for (const el of sources) el?.classList.add("is-drag-source");
 		}
 		const rect = c.host.getBoundingClientRect();
@@ -80,7 +90,9 @@ export function startDrag(e: PointerEvent, c: DragContext): void {
 		ghost.style.top = `${ev.clientY - rect.top + 14}px`;
 		const { target, over } = locate(ev);
 		setHit(target);
-		setRefused(over);
+		if (target) setHint(c.describe(target), false);
+		else if (over) setHint(c.refusal(over), true);
+		else setHint("", false);
 	};
 
 	const finish = (drop: boolean) => {
