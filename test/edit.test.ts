@@ -96,6 +96,13 @@ test("moveSibling swaps whole subtrees", () => {
 	assert.equal(moveSibling(o, findByLine(o, 5)!, -1).focusLine, null);
 });
 
+test("moveSibling and addSibling keep ordered lists counting up", () => {
+	const list = parseOutline("1. x\n2. y\n3. z\n", "doc");
+	assert.equal(moveSibling(list, list.nodes[0], 1).text, "1. y\n2. x\n3. z\n");
+	const o = parseOutline(SAMPLE, "doc");
+	assert.deepEqual(addSibling(o, findByLine(o, 9)!).text.split("\n").slice(9, 12), ["1. b1", "2. ", "3. b2"]);
+});
+
 test("CRLF files keep their line endings", () => {
 	const crlf = "# A\r\n- x\r\n";
 	const o = parseOutline(crlf, "doc");

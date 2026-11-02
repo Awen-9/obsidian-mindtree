@@ -1,9 +1,11 @@
-import { parseOutline, type NodeKind, type Outline, type OutlineNode } from "./outline.ts";
+import { findByLine, parseOutline, type NodeKind, type Outline, type OutlineNode } from "./outline.ts";
 
 export interface EditResult {
 	text: string;
 	/** line of the node to select once the new text is parsed */
 	focusLine: number | null;
+	/** new line of each node moved by `moveNodes`, in document order */
+	lines?: number[];
 }
 
 const unchanged = (o: Outline): EditResult => ({ text: o.lines.join(o.eol), focusLine: null });
@@ -27,6 +29,42 @@ function prefixOf(o: Outline, node: OutlineNode): string {
 function bumpNumber(prefix: string): string {
 	const m = /^(\s*)(\d+)([.)]\s+)$/.exec(prefix);
 	return m ? `${m[1]}${Number(m[2]) + 1}${m[3]}` : prefix;
+}
+
+const ORDERED = /^([ \t]*)(\d{1,9})([.)][ \t]+.*)$/;
+
+/** How the ordered items under one parent were numbered before an edit. */
+interface Numbering {
+	/** a line of the edited text that holds one of the group's items */
+	line: number;
+	start: number;
+	/** every item had the same number ("1. 1. 1."), so they all keep it */
+	lazy: boolean;
+}
+
+function numbering(o: Outline, items: OutlineNode[], line: number): Numbering | null {
+	const nums = items.flatMap((n) => {
+		const m = n.kind === "list" ? ORDERED.exec(o.lines[n.line]) : null;
+		return m ? [Number(m[2])] : [];
+	});
+	if (!nums.length) return null;
+	return { line, start: nums[0], lazy: nums.length > 1 && nums.every((n) => n === nums[0]) };
+}
+
+/** Count the ordered items of each touched group up again after lines were added, removed or moved. */
+function renumber(lines: string[], groups: (Numbering | null)[]): void {
+	const todo = groups.filter((g): g is Numbering => g !== null);
+	if (!todo.length) return;
+	const o = parseOutline(lines.join("\n"), "");
+	for (const g of todo) {
+		const parent = findByLine(o, g.line)?.parent;
+		if (!parent) continue;
+		let i = 0;
+		for (const c of parent.children) {
+			const m = c.kind === "list" ? ORDERED.exec(lines[c.line]) : null;
+			if (m) lines[c.line] = `${m[1]}${g.lazy ? g.start : g.start + i++}${m[3]}`;
+		}
+	}
 }
 
 function insertLine(o: Outline, at: number, line: string): EditResult {
@@ -54,14 +92,36 @@ export function addChild(o: Outline, node: OutlineNode): EditResult {
 
 export function addSibling(o: Outline, node: OutlineNode): EditResult {
 	if (node.kind === "root") return addChild(o, node);
-	return insertLine(o, trimmedEnd(o, node), bumpNumber(prefixOf(o, node)));
+	const at = trimmedEnd(o, node);
+	const lines = o.lines.slice();
+	lines.splice(at, 0, bumpNumber(prefixOf(o, node)));
+	if (node.kind === "list") renumber(lines, [numbering(o, node.parent!.children, at)]);
+	return { text: lines.join(o.eol), focusLine: at };
 }
 
 export function deleteNode(o: Outline, node: OutlineNode): EditResult {
-	if (node.kind === "root") return unchanged(o);
+	return deleteNodes(o, [node]);
+}
+
+/** Delete several nodes with their subtrees in one edit. */
+export function deleteNodes(o: Outline, nodes: OutlineNode[]): EditResult {
+	const tops = topmost(nodes);
+	if (!tops.length) return unchanged(o);
+	const gone = new Set(tops);
+	const ranges = tops.map((n) => ({ start: n.line, end: trimmedEnd(o, n) }));
+	const groups = [...new Set(tops.filter((n) => n.kind === "list").map((n) => n.parent!))].map((p) => {
+		const kept = p.children.find((c) => c.kind === "list" && !gone.has(c));
+		return kept ? numbering(o, p.children, afterRemoval(ranges, kept.line)) : null;
+	});
 	const lines = o.lines.slice();
-	lines.splice(node.line, trimmedEnd(o, node) - node.line);
+	for (const r of [...ranges].reverse()) lines.splice(r.start, r.end - r.start);
+	renumber(lines, groups);
 	return { text: lines.join(o.eol), focusLine: null };
+}
+
+/** Where a line outside the removed ranges ends up once they are gone. */
+function afterRemoval(ranges: { start: number; end: number }[], line: number): number {
+	return ranges.reduce((l, r) => (r.end <= line ? l - (r.end - r.start) : l), line);
 }
 
 export type DropPos = "child" | "before" | "after";
@@ -77,15 +137,23 @@ function subtree(node: OutlineNode): OutlineNode[] {
 	return [node, ...node.children.flatMap(subtree)];
 }
 
+/** The given nodes without the root and without any node inside another given node, in document order. */
+export function topmost(nodes: OutlineNode[]): OutlineNode[] {
+	const set = new Set(nodes.filter((n) => n.kind !== "root"));
+	const covered = (n: OutlineNode) => {
+		for (let p = n.parent; p; p = p.parent) if (set.has(p)) return true;
+		return false;
+	};
+	return [...set].filter((n) => !covered(n)).sort((a, b) => a.line - b.line);
+}
+
 /** New parent and insertion line (original numbering) for a drop, or null when it is not allowed. */
 function dropPoint(
 	o: Outline,
 	kind: NodeKind,
-	moving: OutlineNode | null,
 	target: OutlineNode,
 	pos: DropPos,
 ): { parent: OutlineNode; at: number } | null {
-	if (moving && isInside(target, moving)) return null;
 	if (pos !== "child") {
 		const parent = target.parent;
 		if (!parent || target.kind !== kind) return null;
@@ -104,28 +172,59 @@ function dropPoint(
 /** A run of source lines that is about to be placed under a new parent. */
 interface Block {
 	lines: string[];
-	kind: NodeKind;
-	level: number;
-	/** leading whitespace of the first line */
-	base: string;
-	/** heading lines inside the block: offset into `lines` and original level */
-	headings: { at: number; level: number }[];
+	/** nodes inside the block in document order; the first one sits at the block's top level */
+	nodes: OutlineNode[];
+	/** line number of `lines[0]` in the outline the nodes come from */
+	start: number;
 }
 
-/** Rewrite heading levels or list indentation so the block fits under `parent`; null when it cannot. */
-function fitBlock(o: Outline, b: Block, parent: OutlineNode, pos: DropPos, target: OutlineNode): string[] | null {
-	const block = b.lines.slice();
-	if (b.kind === "heading") {
-		if (parent.kind === "list") return null;
-		const delta = (parent.kind === "root" ? 1 : parent.level + 1) - b.level;
-		for (const h of b.headings) {
+/**
+ * Headings dropped together with list items, or onto a list item, become list items,
+ * since Markdown cannot put a heading inside a list.
+ */
+function dropKind(kinds: NodeKind[], target: OutlineNode): NodeKind {
+	return kinds.every((k) => k === "heading") && target.kind !== "list" ? "heading" : "list";
+}
+
+/** Turn the block's headings into list items nested by depth; the text under each heading moves in under its item. */
+function headingsToList(b: Block, unit: string): string[] {
+	const heads = new Map(b.nodes.filter((n) => n.kind === "heading").map((n) => [n.line - b.start, n]));
+	const top = b.nodes[0].depth;
+	let pad = "";
+	return b.lines.map((l, i) => {
+		const h = heads.get(i);
+		if (!h) return l.trim() === "" ? l : pad + l;
+		const own = unit.repeat(h.depth - top);
+		pad = own + unit;
+		return `${own}- ${h.text}`;
+	});
+}
+
+/** Rewrite heading levels or list indentation so the block fits under `parent` as `kind`; null when it cannot. */
+function fitBlock(
+	o: Outline,
+	b: Block,
+	kind: NodeKind,
+	parent: OutlineNode,
+	pos: DropPos,
+	target: OutlineNode,
+): string[] | null {
+	const first = b.nodes[0];
+	if (kind === "heading") {
+		const block = b.lines.slice();
+		const delta = (parent.kind === "root" ? 1 : parent.level + 1) - first.level;
+		for (const h of b.nodes) {
+			if (h.kind !== "heading") continue;
+			const at = h.line - b.start;
 			const level = h.level + delta;
 			if (level < 1 || level > 6) return null;
-			block[h.at] = "#".repeat(level) + block[h.at].slice(h.level);
+			block[at] = "#".repeat(level) + block[at].slice(h.level);
 		}
 		return block;
 	}
 	if (parent.kind === "root") return null;
+	const block = b.nodes.some((n) => n.kind === "heading") ? headingsToList(b, o.indentUnit) : b.lines.slice();
+	const base = leadingWs(block[first.line - b.start]);
 	const lastKid = parent.children[parent.children.length - 1];
 	let newBase = "";
 	if (parent.kind === "list") {
@@ -135,7 +234,7 @@ function fitBlock(o: Outline, b: Block, parent: OutlineNode, pos: DropPos, targe
 	}
 	for (let i = 0; i < block.length; i++) {
 		if (block[i].trim() === "") continue;
-		const rest = block[i].startsWith(b.base) ? block[i].slice(b.base.length) : block[i].trimStart();
+		const rest = block[i].startsWith(base) ? block[i].slice(base.length) : block[i].trimStart();
 		block[i] = newBase + rest;
 	}
 	return block;
@@ -143,35 +242,70 @@ function fitBlock(o: Outline, b: Block, parent: OutlineNode, pos: DropPos, targe
 
 /** Re-parent a node with its whole subtree, fixing heading levels or list indentation. */
 export function moveNode(o: Outline, node: OutlineNode, target: OutlineNode, pos: DropPos): EditResult {
-	if (node.kind === "root") return unchanged(o);
-	const drop = dropPoint(o, node.kind, node, target, pos);
-	if (!drop) return unchanged(o);
-	const { parent, at } = drop;
-	const start = node.line;
-	const end = trimmedEnd(o, node);
-	if (at > start && at < end) return unchanged(o);
-	const block = fitBlock(
-		o,
-		{
-			lines: o.lines.slice(start, end),
-			kind: node.kind,
-			level: node.level,
-			base: leadingWs(o.lines[start]),
-			headings: subtree(node)
-				.filter((n) => n.kind === "heading")
-				.map((n) => ({ at: n.line - start, level: n.level })),
-		},
-		parent,
-		pos,
+	return moveNodes(o, [node], target, pos);
+}
+
+/**
+ * Move several nodes to the same drop point; they keep their document order.
+ * Headings become list items when they land in a list or travel with list items.
+ */
+export function moveNodes(o: Outline, nodes: OutlineNode[], target: OutlineNode, pos: DropPos): EditResult {
+	const tops = topmost(nodes);
+	if (!tops.length || tops.some((n) => isInside(target, n))) return unchanged(o);
+	const kind = dropKind(
+		tops.map((n) => n.kind),
 		target,
 	);
-	if (!block) return unchanged(o);
+	const drop = dropPoint(o, kind, target, pos);
+	if (!drop) return unchanged(o);
+	const { parent, at } = drop;
+	const ranges = tops.map((n) => ({ node: n, start: n.line, end: trimmedEnd(o, n) }));
+	if (ranges.some((r) => at > r.start && at < r.end)) return unchanged(o);
+
+	const blocks: string[] = [];
+	const offsets: number[] = [];
+	for (const { node, start, end } of ranges) {
+		const block = fitBlock(o, { lines: o.lines.slice(start, end), nodes: subtree(node), start }, kind, parent, pos, target);
+		if (!block) return unchanged(o);
+		offsets.push(blocks.length);
+		blocks.push(...block);
+	}
 
 	const lines = o.lines.slice();
-	lines.splice(start, end - start);
-	const insertAt = at >= end ? at - (end - start) : at;
-	lines.splice(insertAt, 0, ...block);
-	return { text: lines.join(o.eol), focusLine: insertAt };
+	let insertAt = at;
+	for (const { start, end } of [...ranges].reverse()) {
+		lines.splice(start, end - start);
+		if (at >= end) insertAt -= end - start;
+	}
+	lines.splice(insertAt, 0, ...blocks);
+
+	// A line that stayed put, followed through the removal and the insertion.
+	const finalLine = (line: number) => {
+		const l = afterRemoval(ranges, line);
+		return l >= insertAt ? l + blocks.length : l;
+	};
+	const gone = new Set(tops);
+	const groups = [...new Set(tops.filter((n) => n.kind === "list").map((n) => n.parent!))].map((p) => {
+		const kept = p.children.find((c) => c.kind === "list" && !gone.has(c));
+		return kept ? numbering(o, p.children, finalLine(kept.line)) : null;
+	});
+	if (kind === "list") groups.push(numbering(o, parent.children, insertAt));
+	renumber(lines, groups);
+	return { text: lines.join(o.eol), focusLine: insertAt, lines: offsets.map((d) => insertAt + d) };
+}
+
+/** Why `moveNodes` turns down dropping `nodes` into `target`, to tell the user while dragging. */
+export function dropRefusal(nodes: OutlineNode[], target: OutlineNode): "inside" | "root" | "depth" | "same" {
+	const tops = topmost(nodes);
+	if (tops.some((n) => isInside(target, n))) return "inside";
+	const kind = dropKind(
+		tops.map((n) => n.kind),
+		target,
+	);
+	if (kind === "list") return target.kind === "root" ? "root" : "same";
+	const top = target.kind === "root" ? 1 : target.level + 1;
+	const deep = tops.some((n) => subtree(n).some((h) => h.kind === "heading" && h.level - n.level + top > 6));
+	return deep ? "depth" : "same";
 }
 
 /** Markdown of a node and everything under it, indentation removed so it can be pasted anywhere. */
@@ -200,27 +334,19 @@ export function pasteBlock(o: Outline, target: OutlineNode, text: string, pos: D
 		parsed = parseOutline(lines.join("\n"), "");
 	}
 	const tops = parsed.root.children;
-	if (!tops.length || tops.some((t) => t.kind !== tops[0].kind)) return null;
+	if (!tops.length) return null;
 
-	const first = tops[0];
-	const drop = dropPoint(o, first.kind, null, target, pos);
-	if (!drop) return null;
-	const block = fitBlock(
-		o,
-		{
-			lines: parsed.lines,
-			kind: first.kind,
-			level: first.level,
-			base: leadingWs(parsed.lines[first.line]),
-			headings: parsed.nodes.filter((n) => n.kind === "heading").map((n) => ({ at: n.line, level: n.level })),
-		},
-		drop.parent,
-		pos,
+	const kind = dropKind(
+		tops.map((n) => n.kind),
 		target,
 	);
+	const drop = dropPoint(o, kind, target, pos);
+	if (!drop) return null;
+	const block = fitBlock(o, { lines: parsed.lines, nodes: parsed.nodes, start: 0 }, kind, drop.parent, pos, target);
 	if (!block) return null;
 	const out = o.lines.slice();
 	out.splice(drop.at, 0, ...block);
+	if (kind === "list") renumber(out, [numbering(o, drop.parent.children, drop.at)]);
 	return { text: out.join(o.eol), focusLine: drop.at };
 }
 
@@ -234,5 +360,7 @@ export function moveSibling(o: Outline, node: OutlineNode, dir: -1 | 1): EditRes
 	const aBlock = o.lines.slice(a.line, a.endLine);
 	const bBlock = o.lines.slice(b.line, b.endLine);
 	const lines = [...o.lines.slice(0, a.line), ...bBlock, ...aBlock, ...o.lines.slice(b.endLine)];
-	return { text: lines.join(o.eol), focusLine: dir < 0 ? a.line : a.line + bBlock.length };
+	const focusLine = dir < 0 ? a.line : a.line + bBlock.length;
+	if (node.kind === "list") renumber(lines, [numbering(o, siblings, focusLine)]);
+	return { text: lines.join(o.eol), focusLine };
 }

@@ -1,10 +1,6 @@
 import type { Outline, OutlineNode } from "./outline.ts";
 import type { Bounds } from "./viewport.ts";
 
-/** The active window's document on desktop; falls back to `window.document` on mobile. */
-const doc: Document =
-	typeof activeDocument !== "undefined" ? activeDocument : typeof window !== "undefined" ? window.document : ({} as Document);
-
 const esc = (s: string) =>
 	s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -19,7 +15,7 @@ interface TextLine {
 
 /** Visual lines of a text node, so the export wraps exactly where the screen does. */
 function textLines(tn: Text, ox: number, oy: number, scale: number): TextLine[] {
-	const range = doc.createRange();
+	const range = tn.doc.createRange();
 	const lines: (TextLine & { top: number; h: number })[] = [];
 	let cur: (typeof lines)[number] | null = null;
 	let i = 0;
@@ -78,7 +74,7 @@ function nodeSvg(el: HTMLElement): string {
 			out += `<path d="M ${cx + s * 0.25} ${cy + s * 0.52} L ${cx + s * 0.43} ${cy + s * 0.7} L ${cx + s * 0.75} ${cy + s * 0.3}" fill="none" stroke="${esc(getComputedStyle(el).getPropertyValue("--text-on-accent") || "#fff")}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
 	}
 	const tn = el.querySelector(".mt-text")?.firstChild;
-	if (tn instanceof Text) {
+	if (tn?.instanceOf(Text)) {
 		const attrs = `font-size="${px(cs.fontSize)}" font-weight="${esc(cs.fontWeight)}" font-family="${esc(cs.fontFamily)}" fill="${esc(cs.color)}"`;
 		for (const l of textLines(tn, origin.x, origin.y, scale)) {
 			out += `<text x="${l.x}" y="${l.y}" dominant-baseline="text-before-edge" xml:space="preserve" ${attrs}>${esc(l.text)}</text>`;
@@ -114,7 +110,7 @@ export async function svgToPng(svg: string, w: number, h: number): Promise<Array
 		const img = new Image();
 		img.src = url;
 		await img.decode();
-		const canvas = doc.createElement("canvas");
+		const canvas = createEl("canvas");
 		canvas.width = Math.round(w * scale);
 		canvas.height = Math.round(h * scale);
 		canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);

@@ -29,5 +29,10 @@ export class MindTreeSettingTab extends PluginSettingTab {
 			.setName(t("settings.note"))
 			.setDesc(t("settings.noteDesc"))
 			.addToggle((tg) => tg.setValue(this.plugin.isNoteOpen()).onChange((v) => this.plugin.setNoteOpen(v)));
+
+		new Setting(containerEl)
+			.setName(t("settings.dragSelects"))
+			.setDesc(t("settings.dragSelectsDesc"))
+			.addToggle((tg) => tg.setValue(this.plugin.dragSelects()).onChange((v) => this.plugin.setDragSelects(v)));
 	}
 }

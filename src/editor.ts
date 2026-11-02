@@ -1,11 +1,12 @@
 /**
  * Edit a node's text in place. `onDone` receives the final text, or null when the
- * edit was cancelled, and whether Tab asked for a new child afterwards.
+ * edit was cancelled, and which node the key that ended it asks for next:
+ * Tab a child, Enter a sibling.
  */
 export function startInlineEdit(
 	nodeEl: HTMLElement,
 	raw: string,
-	onDone: (text: string | null, addChild: boolean) => void,
+	onDone: (text: string | null, next: "child" | "sibling" | null) => void,
 ): void {
 	const textEl = nodeEl.querySelector<HTMLElement>(".mt-text");
 	if (!textEl) return;
@@ -16,28 +17,25 @@ export function startInlineEdit(
 	nodeEl.classList.add("is-editing");
 
 	let done = false;
-	const finish = (save: boolean, addChild: boolean) => {
+	const finish = (save: boolean, next: "child" | "sibling" | null) => {
 		if (done) return;
 		done = true;
 		textEl.contentEditable = "false";
 		nodeEl.classList.remove("is-editing");
-		onDone(save ? (textEl.textContent ?? "") : null, addChild);
+		onDone(save ? (textEl.textContent ?? "") : null, next);
 	};
 
 	textEl.addEventListener("keydown", (e) => {
 		if (e.isComposing) return;
-		if (e.key === "Enter") {
-			e.preventDefault();
-			finish(true, false);
-		} else if (e.key === "Escape") {
-			e.preventDefault();
-			finish(false, false);
-		} else if (e.key === "Tab") {
-			e.preventDefault();
-			finish(true, true);
-		}
+		if (e.key !== "Enter" && e.key !== "Escape" && e.key !== "Tab") return;
+		// The map's own key handler would otherwise see this key once editing has ended.
+		e.preventDefault();
+		e.stopPropagation();
+		if (e.key === "Enter") finish(true, "sibling");
+		else if (e.key === "Escape") finish(false, null);
+		else finish(true, "child");
 	});
-	textEl.addEventListener("blur", () => finish(true, false));
+	textEl.addEventListener("blur", () => finish(true, null));
 	textEl.addEventListener("paste", (e) => {
 		e.preventDefault();
 		const plain = (e.clipboardData?.getData("text/plain") ?? "").replace(/\s*[\r\n]+\s*/g, " ");

@@ -54,10 +54,24 @@ test("paste headings re-levels them under the target", () => {
 	assert.deepEqual(res.text.split("\n").slice(8), ["## ArrayList", "- 动态数组", "### 新章", "#### 小节", "- a"]);
 });
 
-test("paste fails when headings would exceed level 6 or go under a list item", () => {
+test("paste fails when headings would exceed level 6", () => {
 	const o = parse(["###### deep", "- item"]);
 	assert.equal(pasteBlock(o, at(o, "deep"), "# x"), null);
-	assert.equal(pasteBlock(o, at(o, "item"), "# x"), null);
+});
+
+test("pasted headings become list items under a list item", () => {
+	const o = parse(["###### deep", "- item"]);
+	assert.equal(pasteBlock(o, at(o, "item"), "# x\n## y")!.text, "###### deep\n- item\n\t- x\n\t\t- y");
+});
+
+test("a mix of headings and list items pastes as one list", () => {
+	const o = parse(["# A"]);
+	assert.equal(pasteBlock(o, at(o, "A"), "- a\n# h\n- b")!.text, "# A\n- a\n- h\n\t- b");
+});
+
+test("pasting into an ordered list renumbers it", () => {
+	const o = parse(["# A", "1. x", "2. y"]);
+	assert.equal(pasteBlock(o, at(o, "x"), "1. new", "after")!.text, "# A\n1. x\n2. new\n3. y");
 });
 
 test("paste of a list under the root is refused", () => {

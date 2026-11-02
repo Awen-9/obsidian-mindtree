@@ -22,6 +22,8 @@ export class Viewport {
 	constructor(
 		private host: HTMLElement,
 		private stage: HTMLElement,
+		/** whether a left-button press on empty space draws a selection rectangle instead of panning */
+		private selects: (e: PointerEvent) => boolean,
 	) {
 		host.addEventListener("wheel", (e) => this.onWheel(e), { passive: false });
 		host.addEventListener("pointerdown", (e) => this.onPointerDown(e));
@@ -45,7 +47,10 @@ export class Viewport {
 	}
 
 	private onPointerDown(e: PointerEvent): void {
-		if (e.button !== 0 || (e.target as HTMLElement).closest(".mt-node, .mt-toggle")) return;
+		// The middle button always pans; the left one pans unless it is drawing a selection rectangle.
+		const pans = e.button === 1 || (e.button === 0 && !this.selects(e));
+		if (!pans || (e.target as HTMLElement).closest(".mt-node, .mt-toggle")) return;
+		if (e.button === 1) e.preventDefault();
 		const startX = e.clientX - this.x;
 		const startY = e.clientY - this.y;
 		const move = (ev: PointerEvent) => {

@@ -86,9 +86,30 @@ test("invalid drops leave the text untouched", () => {
 	assert.ok(same("A", "B", "child"), "into own descendant");
 	assert.ok(same("A", "A", "child"), "onto itself");
 	assert.ok(same("a1", "A", "before"), "list before a heading");
-	assert.ok(same("B", "a1", "child"), "heading under a list item");
 	assert.equal(moveNode(o, find(o, "a1"), o.root, "child").text, SRC, "list onto the root");
 	assert.equal(moveNode(o, o.root, find(o, "A"), "child").text, SRC, "moving the root");
+});
+
+test("a heading dropped under a list item becomes a list item with its subtree", () => {
+	const { text, out } = mv(SRC, "B", "a1", "child");
+	assert.deepEqual(kids(out, "a1"), ["a1x", "B"]);
+	assert.deepEqual(kids(out, "B"), ["b1"]);
+	assert.ok(text.includes("- a1\n  - a1x\n  - B\n    - b1\n- a2\n# C"));
+});
+
+test("a converted heading keeps its sub-headings nested and its body text as the item's note", () => {
+	const src = "# P\nabout P\n## Q\n- q1\n# T\n- t1\n";
+	const { out } = mv(src, "P", "t1", "after");
+	assert.deepEqual(kids(out, "T"), ["t1", "P"]);
+	assert.deepEqual(kids(out, "P"), ["Q"]);
+	assert.deepEqual(kids(out, "Q"), ["q1"]);
+	assert.equal(find(out, "P").note, "about P");
+});
+
+test("moves renumber ordered lists at the source and the target", () => {
+	const src = "# A\n1. x\n2. y\n3. z\n# B\n1. p\n";
+	const { text } = mv(src, "x", "p", "after");
+	assert.equal(text, "# A\n1. y\n2. z\n# B\n1. p\n2. x\n");
 });
 
 test("every node survives a move", () => {

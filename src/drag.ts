@@ -9,13 +9,17 @@ export interface DropTarget {
 
 export interface DragContext {
 	host: HTMLElement;
-	node: OutlineNode;
+	nodes: OutlineNode[];
 	label: string;
 	items(): LItem[];
 	elOf(key: string): HTMLElement | undefined;
 	toStage(clientX: number, clientY: number): { x: number; y: number };
 	isValid(t: DropTarget): boolean;
+	/** why nothing can be dropped on a node, shown on the ghost */
+	refusal(node: OutlineNode): string;
 	onDrop(t: DropTarget): void;
+	/** the pointer was released without moving */
+	onClick?(): void;
 }
 
 const DROP_CLASSES = ["mt-drop-child", "mt-drop-before", "mt-drop-after"];
@@ -27,24 +31,34 @@ export function startDrag(e: PointerEvent, c: DragContext): void {
 	const doc = c.host.ownerDocument;
 	const sx = e.clientX;
 	const sy = e.clientY;
-	const source = c.elOf(c.node.key);
+	const moving = new Set(c.nodes);
+	const sources = c.nodes.map((n) => c.elOf(n.key));
 	let ghost: HTMLElement | null = null;
 	let hit: DropTarget | null = null;
 	let hitEl: HTMLElement | null = null;
+	let refused: OutlineNode | null = null;
 
-	const locate = (ev: PointerEvent): DropTarget | null => {
+	/** The drop under the pointer, or the node that turns the drop down. */
+	const locate = (ev: PointerEvent): { target: DropTarget | null; over: OutlineNode | null } => {
 		const p = c.toStage(ev.clientX, ev.clientY);
 		const it = c.items().find(
-			(i) => i.node !== c.node && p.x >= i.x - PAD && p.x <= i.x + i.w + PAD && p.y >= i.y - PAD && p.y <= i.y + i.h + PAD,
+			(i) => !moving.has(i.node) && p.x >= i.x - PAD && p.x <= i.x + i.w + PAD && p.y >= i.y - PAD && p.y <= i.y + i.h + PAD,
 		);
-		if (!it) return null;
+		if (!it) return { target: null, over: null };
 		const t = (p.y - it.y) / it.h;
 		const first: DropPos = t < 0.25 ? "before" : t > 0.75 ? "after" : "child";
 		for (const pos of first === "child" ? (["child"] as const) : ([first, "child"] as const)) {
 			const target = { node: it.node, pos };
-			if (c.isValid(target)) return target;
+			if (c.isValid(target)) return { target, over: null };
 		}
-		return null;
+		return { target: null, over: it.node };
+	};
+
+	const setRefused = (node: OutlineNode | null) => {
+		if (node === refused || !ghost) return;
+		refused = node;
+		ghost.toggleClass("is-refused", !!node);
+		ghost.setText(node ? c.refusal(node) : c.label);
 	};
 
 	const setHit = (next: DropTarget | null) => {
@@ -59,12 +73,14 @@ export function startDrag(e: PointerEvent, c: DragContext): void {
 		if (!ghost) {
 			if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < THRESHOLD) return;
 			ghost = c.host.createDiv({ cls: "mt-drag-ghost", text: c.label });
-			source?.classList.add("is-drag-source");
+			for (const el of sources) el?.classList.add("is-drag-source");
 		}
 		const rect = c.host.getBoundingClientRect();
 		ghost.style.left = `${ev.clientX - rect.left + 14}px`;
 		ghost.style.top = `${ev.clientY - rect.top + 14}px`;
-		setHit(locate(ev));
+		const { target, over } = locate(ev);
+		setHit(target);
+		setRefused(over);
 	};
 
 	const finish = (drop: boolean) => {
@@ -75,8 +91,9 @@ export function startDrag(e: PointerEvent, c: DragContext): void {
 		const target = hit;
 		setHit(null);
 		ghost?.remove();
-		source?.classList.remove("is-drag-source");
+		for (const el of sources) el?.classList.remove("is-drag-source");
 		if (drop && ghost && target) c.onDrop(target);
+		else if (drop && !ghost) c.onClick?.();
 	};
 	const up = () => finish(true);
 	const cancel = () => finish(false);

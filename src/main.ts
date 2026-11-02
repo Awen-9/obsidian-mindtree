@@ -15,10 +15,19 @@ interface PluginData {
 	theme: ThemeId;
 	toc: boolean;
 	note: boolean;
+	/** a plain drag on empty space draws a selection rectangle and Shift+drag pans, instead of the other way round */
+	dragSelects: boolean;
 }
 
 export default class MindTreePlugin extends Plugin {
-	private data: PluginData = { collapsed: {}, tocCollapsed: {}, theme: "default", toc: true, note: false };
+	private data: PluginData = {
+		collapsed: {},
+		tocCollapsed: {},
+		theme: "default",
+		toc: true,
+		note: false,
+		dragSelects: false,
+	};
 	private saveTimer: number | null = null;
 
 	async onload(): Promise<void> {
@@ -29,6 +38,7 @@ export default class MindTreePlugin extends Plugin {
 			theme: isTheme(saved?.theme) ? saved.theme : "default",
 			toc: saved?.toc ?? true,
 			note: saved?.note ?? false,
+			dragSelects: saved?.dragSelects ?? false,
 		};
 
 		this.registerView(VIEW_TYPE, (leaf) => new MindView(leaf, this));
@@ -185,6 +195,15 @@ export default class MindTreePlugin extends Plugin {
 
 	setNoteOpen(open: boolean): void {
 		this.data.note = open;
+		this.scheduleSave();
+	}
+
+	dragSelects(): boolean {
+		return this.data.dragSelects;
+	}
+
+	setDragSelects(on: boolean): void {
+		this.data.dragSelects = on;
 		this.scheduleSave();
 	}
 

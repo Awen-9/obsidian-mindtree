@@ -16,11 +16,13 @@ import {
 	addSibling,
 	cleanText,
 	copyBlock,
-	deleteNode,
-	moveNode,
+	deleteNodes,
+	dropRefusal,
+	moveNodes,
 	moveSibling,
 	pasteBlock,
 	setNodeText,
+	topmost,
 	type EditResult,
 } from "./edit.ts";
 import { displayText, drawMap, type DrawResult } from "./draw.ts";
@@ -30,6 +32,7 @@ import { buildSvg, outlineToOpml, svgToPng } from "./exporter.ts";
 import { History } from "./history.ts";
 import { handleKey } from "./keys.ts";
 import { firstLink } from "./links.ts";
+import { startMarquee } from "./marquee.ts";
 import { navigate, type Dir } from "./nav.ts";
 import { noteHasNodes, noteOf, setNodeNote } from "./note.ts";
 import { findByKey, findByLine, parseOutline, type Outline, type OutlineNode } from "./outline.ts";
@@ -52,6 +55,11 @@ export class MindView extends ItemView {
 	private history = new History();
 	private collapsed = new Set<string>();
 	private selectedKey = "";
+	/** Extra nodes picked with Shift+click or a Shift+drag rectangle; Delete and drag act on all of them. */
+	private picked = new Set<string>();
+	/** Touch-friendly multi-select: taps add or remove nodes and a drag on empty space draws a rectangle. */
+	private pickMode = false;
+	private pickBtn: HTMLElement | null = null;
 	private pendingNew = false;
 	private editing = false;
 	private needsFit = true;
@@ -124,10 +132,11 @@ export class MindView extends ItemView {
 		this.hostEl = main.createDiv({ cls: "mt-host" });
 		this.hostEl.dataset.hintEmpty = t("hint.empty");
 		this.hostEl.dataset.hintRecall = t("hint.recall");
+		this.hostEl.dataset.hintPick = t("hint.pick");
 		this.buildNote(main);
 		this.hostEl.tabIndex = 0;
 		this.stageEl = this.hostEl.createDiv({ cls: "mt-stage" });
-		this.viewport = new Viewport(this.hostEl, this.stageEl);
+		this.viewport = new Viewport(this.hostEl, this.stageEl, (e) => this.boxSelects(e));
 		this.hostEl.addEventListener("keydown", (e) => this.onKey(e));
 		this.hostEl.addEventListener("pointerdown", (e) => this.onPointer(e));
 		this.hostEl.addEventListener("dblclick", (e) => this.onDblClick(e));
@@ -159,6 +168,7 @@ export class MindView extends ItemView {
 		this.tocCollapsed = this.plugin.getTocCollapsed(file.path, this.outline);
 		this.history.clear();
 		this.selectedKey = "";
+		this.picked.clear();
 		this.needsFit = true;
 		this.render();
 	}
@@ -172,6 +182,7 @@ export class MindView extends ItemView {
 		if (!this.hostEl || !this.file) return;
 		this.hostEl.toggleClass("is-empty", this.outline.root.children.length === 0);
 		this.drawn = drawMap(this.stageEl, this.outline.root, this.collapsed, this.selectedKey);
+		for (const k of this.picked) this.drawn.els.get(k)?.addClass("is-picked");
 		this.refreshMatches();
 		this.renderToc();
 		this.renderNote();
@@ -205,8 +216,10 @@ export class MindView extends ItemView {
 			return next;
 		});
 		if (conflict) {
+			// Old snapshots would silently undo the outside change, so they go.
 			this.history.clear();
 			await this.onModify(file);
+			new Notice(t("notice.conflict"));
 			return false;
 		}
 		return true;
@@ -245,18 +258,53 @@ export class MindView extends ItemView {
 		let target = this.selected();
 		for (let p = target.parent; p; p = p.parent) if (this.collapsed.has(p.key)) target = p;
 		this.selectedKey = target.key;
+		for (const k of [...this.picked]) {
+			const n = findByKey(this.outline, k);
+			if (!n || k === target.key || foldedAncestors(n, this.collapsed).length) this.picked.delete(k);
+		}
 	}
 
-	private select(key: string, sync = true): void {
-		this.drawn?.els.get(this.selectedKey)?.classList.remove("is-selected");
+	/** The primary node plus the picked ones. */
+	private selection(): OutlineNode[] {
+		const picked = [...this.picked].map((k) => findByKey(this.outline, k));
+		return [this.selected(), ...picked.filter((n): n is OutlineNode => !!n)];
+	}
+
+	private markSelection(): void {
+		if (!this.drawn) return;
+		for (const [k, el] of this.drawn.els) {
+			el.toggleClass("is-selected", k === this.selectedKey);
+			el.toggleClass("is-picked", this.picked.has(k));
+		}
+	}
+
+	/** With `keepPicked` the previous primary node joins the picked ones instead of being dropped. */
+	private select(key: string, sync = true, keepPicked = false): void {
+		if (!keepPicked) this.picked.clear();
+		else if (key !== this.selectedKey && this.selected().kind !== "root") this.picked.add(this.selectedKey);
+		this.picked.delete(key);
 		this.selectedKey = key;
 		if (this.recallSync()) this.render();
-		this.drawn?.els.get(key)?.classList.add("is-selected");
+		this.markSelection();
 		if (this.revealInToc(this.selected())) this.renderToc();
 		else this.markToc();
 		this.renderNote();
 		this.ensureVisible();
 		if (sync) this.syncSource();
+	}
+
+	/** Shift+click: add a node to the selection, or take it out again. */
+	private togglePick(key: string): void {
+		if (key === this.selectedKey) {
+			const next = this.picked.values().next();
+			if (next.done) return;
+			this.selectedKey = next.value;
+			this.select(next.value, true, true);
+		} else if (this.picked.delete(key)) {
+			this.select(this.selectedKey, true, true);
+		} else {
+			this.select(key, true, true);
+		}
 	}
 
 	private syncSource(): void {
@@ -283,18 +331,21 @@ export class MindView extends ItemView {
 		if (this.file && !this.recall) this.plugin.setCollapsed(this.file.path, [...this.collapsed]);
 	}
 
-	private remapKeys(oldKey: string, newKey: string): void {
-		if (oldKey === newKey) return;
-		for (const k of [...this.collapsed]) {
-			if (k === oldKey || k.startsWith(`${oldKey}/`)) {
-				this.collapsed.delete(k);
-				this.collapsed.add(newKey + k.slice(oldKey.length));
-			}
+	/** Carry fold state over to new keys; each pair is [old key, new key] of a node that changed. */
+	private remapKeys(pairs: [string, string][]): void {
+		const moved = pairs.filter(([a, b]) => a !== b);
+		if (!moved.length) return;
+		const next = new Set<string>();
+		for (const k of this.collapsed) {
+			const hit = moved.find(([a]) => k === a || k.startsWith(`${a}/`));
+			next.add(hit ? hit[1] + k.slice(hit[0].length) : k);
 		}
+		this.collapsed = next;
 		this.persistCollapsed();
 	}
 
 	private async addNode(kind: "child" | "sibling"): Promise<void> {
+		this.picked.clear();
 		const node = this.selected();
 		if (kind === "child" || node.kind === "root") {
 			this.collapsed.delete(node.key);
@@ -312,10 +363,11 @@ export class MindView extends ItemView {
 		const el = this.drawn?.els.get(node.key);
 		if (node.kind === "root" || !el || this.editing) return;
 		this.editing = true;
-		startInlineEdit(el, node.text, (text, wantChild) => void this.finishEdit(node, text, wantChild));
+		startInlineEdit(el, node.text, (text, next) => void this.finishEdit(node, text, next));
 	}
 
-	private async finishEdit(node: OutlineNode, text: string | null, wantChild: boolean): Promise<void> {
+	/** Tab after any edit adds a child; Enter adds a sibling only while typing a run of new nodes. */
+	private async finishEdit(node: OutlineNode, text: string | null, next: "child" | "sibling" | null): Promise<void> {
 		this.editing = false;
 		const isNew = this.pendingNew;
 		this.pendingNew = false;
@@ -331,32 +383,38 @@ export class MindView extends ItemView {
 			const oldKey = node.key;
 			const res = await this.apply((o) => setNodeText(o, node, value), isNew);
 			const updated = res ? findByLine(this.outline, node.line) : null;
-			if (updated) this.remapKeys(oldKey, updated.key);
+			if (updated) this.remapKeys([[oldKey, updated.key]]);
 			this.afterEdit(res);
 		} else {
 			this.render();
 		}
 		this.hostEl.focus({ preventScroll: true });
-		if (wantChild && value) await this.addNode("child");
+		if (!value) return;
+		if (next === "child") await this.addNode("child");
+		else if (next === "sibling" && isNew) await this.addNode("sibling");
 	}
 
 	private async remove(): Promise<void> {
-		const node = this.selected();
-		if (node.kind === "root" || !node.parent) return;
-		const siblings = node.parent.children;
-		const i = siblings.indexOf(node);
-		const fallback = [siblings[i + 1], siblings[i - 1], node.parent]
+		const nodes = topmost(this.selection());
+		const first = nodes[0];
+		if (!first?.parent) return;
+		const gone = new Set(nodes);
+		const kept = first.parent.children.filter((n) => n === first || !gone.has(n));
+		const i = kept.indexOf(first);
+		const fallback = [kept[i + 1], kept[i - 1], first.parent]
 			.filter((n): n is OutlineNode => !!n)
 			.map((n) => n.key);
-		const res = await this.apply((o) => deleteNode(o, node));
+		const res = await this.apply((o) => deleteNodes(o, nodes));
 		if (!res) return;
+		this.picked.clear();
 		this.selectedKey = fallback.find((k) => findByKey(this.outline, k)) ?? "";
 		this.afterEdit(res);
 	}
 
 	private async copyNode(cut: boolean): Promise<void> {
-		const md = copyBlock(this.outline, this.selected());
-		if (md === null) return;
+		const nodes = topmost(this.selection());
+		if (!nodes.length) return;
+		const md = nodes.map((n) => copyBlock(this.outline, n)).join("\n");
 		try {
 			await navigator.clipboard.writeText(md);
 		} catch {
@@ -490,6 +548,17 @@ export class MindView extends ItemView {
 			this.toggleRecall();
 			return;
 		}
+		if (this.picked.size && e.key === "Escape") {
+			e.preventDefault();
+			this.picked.clear();
+			this.markSelection();
+			return;
+		}
+		if (this.pickMode && e.key === "Escape") {
+			e.preventDefault();
+			this.togglePickMode();
+			return;
+		}
 		const edit = <A extends unknown[]>(fn: (...a: A) => void) => (...a: A) => {
 			if (!this.blocked()) fn(...a);
 		};
@@ -522,18 +591,68 @@ export class MindView extends ItemView {
 		const nodeEl = target.closest<HTMLElement>(".mt-node");
 		if (nodeEl) {
 			const key = nodeEl.dataset.key ?? "";
-			this.select(key);
 			const node = findByKey(this.outline, key);
-			if (node && target.closest(".mt-check")) {
+			if (e.shiftKey && node && node.kind !== "root") {
+				e.preventDefault();
+				this.togglePick(key);
+			} else if (node && target.closest(".mt-check")) {
+				this.select(key);
 				e.preventDefault();
 				if (!this.blocked()) void this.toggleTaskNode(node);
 			} else if (node && (e.metaKey || e.ctrlKey) && this.openLink(node)) {
+				this.select(key);
 				e.preventDefault();
+			} else if (node && this.pickMode && node.kind !== "root" && !this.recall) {
+				// In multi-select mode a tap adds or removes the node; dragging a picked node moves them all.
+				const keep = this.picked.has(key) || key === this.selectedKey;
+				this.beginDrag(e, keep ? topmost(this.selection()) : [node], () => this.togglePick(key));
 			} else if (node && node.kind !== "root" && !this.recall) {
-				this.beginDrag(e, node);
+				// Pressing on a node that is already part of a multi-selection drags all of them.
+				const keep = this.picked.size > 0 && (this.picked.has(key) || key === this.selectedKey);
+				if (keep) this.select(key, true, true);
+				else this.select(key);
+				this.beginDrag(e, keep ? topmost(this.selection()) : [node], keep ? () => this.select(key) : undefined);
+			} else {
+				this.select(key);
 			}
+		} else if (this.boxSelects(e)) {
+			e.preventDefault();
+			this.beginMarquee(e);
+		} else if (this.picked.size) {
+			this.picked.clear();
+			this.markSelection();
 		}
 		this.hostEl.focus({ preventScroll: true });
+	}
+
+	/** Whether a press on empty space draws a selection rectangle; Shift swaps it with panning. */
+	private boxSelects(e: PointerEvent): boolean {
+		return !this.recall && (this.pickMode || this.plugin.dragSelects() !== e.shiftKey);
+	}
+
+	togglePickMode(): void {
+		this.pickMode = !this.pickMode;
+		this.pickBtn?.toggleClass("is-active", this.pickMode);
+		this.hostEl.toggleClass("is-picking", this.pickMode);
+	}
+
+	/** A rectangle drawn on empty space selects every node it touches, on top of the selection with Shift or in multi-select mode. */
+	private beginMarquee(e: PointerEvent): void {
+		const base = e.shiftKey || this.pickMode ? this.selection().filter((n) => n.kind !== "root") : [];
+		if (!base.length) this.picked.clear();
+		const origin = this.selectedKey;
+		startMarquee(e, {
+			host: this.hostEl,
+			items: () => this.drawn?.items ?? [],
+			toStage: (x, y) => this.viewport.toStage(x, y),
+			onChange: (hit) => {
+				const keys = [...new Set([...base, ...hit.map((i) => i.node)].map((n) => n.key))];
+				this.selectedKey = keys.includes(origin) ? origin : (keys[0] ?? origin);
+				this.picked = new Set(keys.filter((k) => k !== this.selectedKey));
+				this.markSelection();
+			},
+			onEnd: () => this.select(this.selectedKey, true, true),
+		});
 	}
 
 	private openLink(node: OutlineNode): boolean {
@@ -548,33 +667,40 @@ export class MindView extends ItemView {
 		const oldKey = node.key;
 		const res = await this.apply((o) => toggleTask(o, node));
 		const updated = res && res.focusLine !== null ? findByLine(this.outline, res.focusLine) : null;
-		if (updated) this.remapKeys(oldKey, updated.key);
+		if (updated) this.remapKeys([[oldKey, updated.key]]);
 		this.afterEdit(res);
 	}
 
-	private beginDrag(e: PointerEvent, node: OutlineNode): void {
+	private beginDrag(e: PointerEvent, nodes: OutlineNode[], onClick?: () => void): void {
+		const label = displayText(nodes[0].text);
 		startDrag(e, {
 			host: this.hostEl,
-			node,
-			label: displayText(node.text),
+			nodes,
+			label: nodes.length > 1 ? `${label} +${nodes.length - 1}` : label,
 			items: () => this.drawn?.items ?? [],
 			elOf: (key) => this.drawn?.els.get(key),
 			toStage: (x, y) => this.viewport.toStage(x, y),
-			isValid: (t) => moveNode(this.outline, node, t.node, t.pos).text !== this.text,
-			onDrop: (t) => void this.dropNode(node, t),
+			isValid: (t) => moveNodes(this.outline, nodes, t.node, t.pos).text !== this.text,
+			refusal: (node) => t(`drop.${dropRefusal(nodes, node)}` as const),
+			onDrop: (t) => void this.dropNodes(nodes, t),
+			onClick,
 		});
 	}
 
-	private async dropNode(node: OutlineNode, t: DropTarget): Promise<void> {
-		const oldKey = node.key;
+	private async dropNodes(nodes: OutlineNode[], t: DropTarget): Promise<void> {
+		const oldKeys = nodes.map((n) => n.key);
+		const primary = Math.max(0, oldKeys.indexOf(this.selectedKey));
 		if (t.pos === "child") {
 			this.collapsed.delete(t.node.key);
 			this.persistCollapsed();
 		}
-		const res = await this.apply((o) => moveNode(o, node, t.node, t.pos));
-		const moved = res && res.focusLine !== null ? findByLine(this.outline, res.focusLine) : null;
-		if (moved) this.remapKeys(oldKey, moved.key);
-		this.afterEdit(res);
+		const res = await this.apply((o) => moveNodes(o, nodes, t.node, t.pos));
+		if (!res?.lines) return this.afterEdit(res);
+		const moved = res.lines.map((l) => findByLine(this.outline, l));
+		this.remapKeys(oldKeys.map((k, i) => [k, moved[i]?.key ?? k]));
+		const keys = moved.filter((n): n is OutlineNode => !!n).map((n) => n.key);
+		this.picked = new Set(keys.filter((k) => k !== moved[primary]?.key));
+		this.afterEdit({ ...res, focusLine: res.lines[primary] });
 	}
 
 	private onDblClick(e: MouseEvent): void {
@@ -598,6 +724,14 @@ export class MindView extends ItemView {
 				{ icon: "plus", label: t("tb.addSibling"), run: act(() => this.addNode("sibling")) },
 				{ icon: "pencil", label: t("tb.edit"), run: act(() => this.beginEdit()) },
 				{ icon: "trash-2", label: t("tb.delete"), run: act(() => this.remove()) },
+				{
+					icon: "list-checks",
+					label: t("tb.pick"),
+					run: () => this.togglePickMode(),
+					ref: (btn) => {
+						this.pickBtn = btn;
+					},
+				},
 			],
 			[
 				{ icon: "chevrons-up-down", label: t("tb.expandAll"), run: act(() => this.setLevel(Infinity)) },
@@ -700,6 +834,7 @@ export class MindView extends ItemView {
 		for (const k of folded) this.collapsed.delete(k);
 		if (folded.length) this.persistCollapsed();
 		this.selectedKey = node.key;
+		this.picked.clear();
 		this.recallSync();
 		this.revealInToc(node);
 		this.render();

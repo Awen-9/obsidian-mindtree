@@ -4,6 +4,8 @@ export interface ToolbarButton {
 	icon: string;
 	label: string;
 	run: (e: MouseEvent) => void;
+	/** receives the button, e.g. to show an on/off state later */
+	ref?: (btn: HTMLElement) => void;
 }
 
 export function buildToolbar(bar: HTMLElement, groups: ToolbarButton[][]): void {
@@ -14,6 +16,7 @@ export function buildToolbar(bar: HTMLElement, groups: ToolbarButton[][]): void 
 			setIcon(btn, b.icon);
 			btn.addEventListener("pointerdown", (e) => e.preventDefault());
 			btn.addEventListener("click", b.run);
+			b.ref?.(btn);
 		}
 	});
 }
