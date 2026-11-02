@@ -1,9 +1,9 @@
 import type { Outline, OutlineNode } from "./outline.ts";
 import type { Bounds } from "./viewport.ts";
 
-/** The active window's document on desktop; falls back to `document` on mobile. */
-const g = globalThis as { activeDocument?: Document; document?: Document };
-const doc: Document = g.activeDocument ?? g.document ?? ({} as Document);
+/** The active window's document on desktop; falls back to `window.document` on mobile. */
+const doc: Document =
+	typeof activeDocument !== "undefined" ? activeDocument : typeof window !== "undefined" ? window.document : ({} as Document);
 
 const esc = (s: string) =>
 	s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

@@ -25,7 +25,7 @@ export function startInlineEdit(
 	};
 
 	textEl.addEventListener("keydown", (e) => {
-		if (e.isComposing || e.keyCode === 229) return;
+		if (e.isComposing) return;
 		if (e.key === "Enter") {
 			e.preventDefault();
 			finish(true, false);

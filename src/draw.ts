@@ -7,9 +7,9 @@ import { parseTask } from "./task.ts";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const BRANCH_COLORS = 8;
 
-/** The active window's document on desktop; falls back to `document` on mobile. */
-const g = globalThis as { activeDocument?: Document; document?: Document };
-const doc: Document = g.activeDocument ?? g.document ?? ({} as Document);
+/** The active window's document on desktop; falls back to `window.document` on mobile. */
+const doc: Document =
+	typeof activeDocument !== "undefined" ? activeDocument : typeof window !== "undefined" ? window.document : ({} as Document);
 
 export interface DrawResult {
 	items: LItem[];
