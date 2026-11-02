@@ -1,9 +1,10 @@
 {
 	"id": "mindtree",
 	"name": "MindTree",
-	"version": "1.1.2",
+	"version": "1.1.3",
 	"minAppVersion": "1.7.2",
 	"description": "Edit and fold Markdown outlines as an XMind-style mind map. Every change is written straight back to the note.",
 	"author": "Awen",
-	"authorUrl": "https://github.com/Awen-9"
+	"authorUrl": "https://github.com/Awen-9",
+	"isDesktopOnly": false
 }

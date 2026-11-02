@@ -642,7 +642,7 @@ export class MindView extends ItemView {
 			this.gotoMatch(0);
 		};
 		input.addEventListener("input", (e) => {
-			if (!(e as InputEvent).isComposing) search();
+			if (e instanceof InputEvent && !e.isComposing) search();
 		});
 		input.addEventListener("compositionend", search);
 		input.addEventListener("keydown", (e) => {
@@ -739,7 +739,7 @@ export class MindView extends ItemView {
 			this.tocSearchInput.focus();
 		});
 		this.tocSearchInput.addEventListener("input", (e) => {
-			if (!(e as InputEvent).isComposing) this.applyTocQuery();
+			if (e instanceof InputEvent && !e.isComposing) this.applyTocQuery();
 		});
 		this.tocSearchInput.addEventListener("compositionend", () => this.applyTocQuery());
 		this.tocSearchInput.addEventListener("keydown", (e) => {
